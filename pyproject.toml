@@ -1,0 +1,13 @@
+[project]
+name = "payd"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14.0"
+dependencies = [
+    "black>=25.11.0",
+    "django>=6.0",
+    "django-ninja>=1.5.1",
+    "paystack-api-wrapper>=0.1.1",
+    "pylint>=4.0.4",
+]
