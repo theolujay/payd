@@ -1,13 +1,19 @@
-# api/tests.py
+
+import json
+import hmac
+import hashlib
 from urllib.parse import urlparse, parse_qs
 from unittest.mock import patch, Mock
 
+from django.utils import timezone
 from django.test import TestCase
 from django.db import IntegrityError
 from django.urls import reverse
 from paystack import APIError
 
 from api.models import User, Transaction
+
+
 
 class TestGoogleAuth(TestCase):
     def test_sign_in_redirect(self):
@@ -418,3 +424,330 @@ class TestPaystackPaymentInitiation(TestCase):
 
             self.assertEqual(response.status_code, 500)
             self.assertIn("error", response.json())
+            
+
+
+class TestPaystackWebhook(TestCase):
+    def setUp(self):
+        """Create test transaction"""
+        self.transaction = Transaction.objects.create(
+            reference="TEST_REF_WEBHOOK",
+            amount=500000,
+            status=Transaction.Status.PENDING,
+            authorization_url="https://checkout.paystack.com/test",
+        )
+        
+        self.webhook_url = reverse("payd_api:paystack-webhook")
+        self.webhook_secret = "test_webhook_secret"
+    
+    def _generate_signature(self, payload: dict) -> str:
+        """Helper to generate valid Paystack signature"""
+        json_payload = json.dumps(payload)
+        return hmac.new(
+            self.webhook_secret.encode('utf-8'),
+            json_payload.encode('utf-8'),
+            hashlib.sha512
+        ).hexdigest()
+    
+    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+    def test_webhook_success(self):
+        """Test successful webhook processing"""
+        payload = {
+            "event": "charge.success",
+            "data": {
+                "reference": "TEST_REF_WEBHOOK",
+                "status": "success",
+                "paid_at": "2024-12-06T10:00:00.000Z",
+                "amount": 500000,
+            }
+        }
+        
+        signature = self._generate_signature(payload)
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_PAYSTACK_SIGNATURE=signature,
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], True)
+        
+        # Verify transaction was updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.SUCCESS)
+        self.assertIsNotNone(self.transaction.paid_at)
+    
+    def test_webhook_missing_signature(self):
+        """Test webhook without signature header"""
+        payload = {
+            "event": "charge.success",
+            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"}
+        }
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+        self.assertEqual(response.json()["error"], "invalid signature")
+        
+        # Verify transaction was NOT updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.PENDING)
+    
+    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+    def test_webhook_invalid_signature(self):
+        """Test webhook with invalid signature"""
+        payload = {
+            "event": "charge.success",
+            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"}
+        }
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_PAYSTACK_SIGNATURE="invalid_signature_123",
+        )
+        
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "invalid signature")
+        
+        # Verify transaction was NOT updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.PENDING)
+    
+    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+    def test_webhook_unknown_reference(self):
+        """Test webhook with unknown transaction reference"""
+        payload = {
+            "event": "charge.success",
+            "data": {
+                "reference": "UNKNOWN_REF",
+                "status": "success",
+                "paid_at": "2024-12-06T10:00:00.000Z",
+            }
+        }
+        
+        signature = self._generate_signature(payload)
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_PAYSTACK_SIGNATURE=signature,
+        )
+        
+        # Should still return 200 to acknowledge receipt
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], True)
+    
+    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+    @patch('api.endpoints.Transaction.objects.get')
+    def test_webhook_database_error(self, mock_get):
+        """Test webhook when database is unavailable"""
+        mock_get.side_effect = Exception("Database connection failed")
+        
+        payload = {
+            "event": "charge.success",
+            "data": {
+                "reference": "TEST_REF_WEBHOOK",
+                "status": "success",
+                "paid_at": "2024-12-06T10:00:00.000Z",
+            }
+        }
+        
+        signature = self._generate_signature(payload)
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_PAYSTACK_SIGNATURE=signature,
+        )
+        
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("error", response.json())
+    
+    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+    def test_webhook_failed_transaction(self):
+        """Test webhook for failed transaction"""
+        payload = {
+            "event": "charge.success",
+            "data": {
+                "reference": "TEST_REF_WEBHOOK",
+                "status": "failed",
+                "paid_at": None,
+            }
+        }
+        
+        signature = self._generate_signature(payload)
+        
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_PAYSTACK_SIGNATURE=signature,
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        
+        # Verify transaction status updated to failed
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.FAILED)
+        self.assertIsNone(self.transaction.paid_at)
+        
+class TestTransactionStatus(TestCase):
+    def setUp(self):
+        """Create test transaction"""
+        self.transaction = Transaction.objects.create(
+            reference="TEST_STATUS_REF",
+            amount=500000,
+            status=Transaction.Status.PENDING,
+            authorization_url="https://checkout.paystack.com/test",
+        )
+
+    def test_get_transaction_status_from_database(self):
+        """Test getting transaction status from database"""
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["reference"], "TEST_STATUS_REF")
+        self.assertEqual(data["status"], "pending")
+        self.assertEqual(data["amount"], 500000)
+        self.assertIsNone(data["paid_at"])
+
+    def test_get_transaction_status_not_found(self):
+        """Test getting status for non-existent transaction"""
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "UNKNOWN_REF"}
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("error", response.json())
+        self.assertEqual(response.json()["error"], "transaction not found")
+
+    def test_get_transaction_status_invalid_reference(self):
+        """Test getting status with invalid reference format"""
+        url = reverse("payd_api:transaction-status", kwargs={"reference": "ABC"})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+
+    @patch("api.endpoints.paystack_client.transactions.verify")
+    def test_get_transaction_status_with_refresh(self, mock_verify):
+        """Test getting transaction status with Paystack refresh"""
+        mock_verify.return_value = (
+            {
+                "reference": "TEST_STATUS_REF",
+                "status": "success",
+                "amount": 500000,
+                "paid_at": "2024-12-06T10:00:00.000Z",
+            },
+            {},
+        )
+
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url, {"refresh": "true"})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+
+        # Verify Paystack was called
+        mock_verify.assert_called_once_with(reference="TEST_STATUS_REF")
+
+        # Verify database was updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.SUCCESS)
+        self.assertIsNotNone(self.transaction.paid_at)
+
+    @patch("api.endpoints.paystack_client.transactions.verify")
+    def test_get_transaction_status_refresh_failed_status(self, mock_verify):
+        """Test refresh with failed transaction status"""
+        mock_verify.return_value = (
+            {
+                "reference": "TEST_STATUS_REF",
+                "status": "failed",
+                "amount": 500000,
+                "paid_at": None,
+            },
+            {},
+        )
+
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url, {"refresh": "true"})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "failed")
+
+        # Verify database was updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.FAILED)
+
+    @patch("api.endpoints.paystack_client.transactions.verify")
+    def test_get_transaction_status_refresh_paystack_error(self, mock_verify):
+        """Test refresh when Paystack API returns error"""
+        mock_verify.side_effect = APIError("Paystack error", 400)
+
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url, {"refresh": "true"})
+
+        # Should still return cached status
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "pending")
+
+        # Verify database was NOT updated
+        self.transaction.refresh_from_db()
+        self.assertEqual(self.transaction.status, Transaction.Status.PENDING)
+
+    @patch("api.endpoints.paystack_client.transactions.verify")
+    def test_get_transaction_status_refresh_connection_error(self, mock_verify):
+        """Test refresh when connection to Paystack fails"""
+        mock_verify.side_effect = Exception("Connection timeout")
+
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url, {"refresh": "true"})
+
+        # Should still return cached status
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "pending")
+
+    def test_get_transaction_status_successful_transaction(self):
+        """Test getting status for successful transaction"""
+        # Update transaction to success
+        self.transaction.status = Transaction.Status.SUCCESS
+        self.transaction.paid_at = timezone.now()
+        self.transaction.save()
+
+        url = reverse(
+            "payd_api:transaction-status", kwargs={"reference": "TEST_STATUS_REF"}
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertIsNotNone(data["paid_at"])

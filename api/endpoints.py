@@ -1,17 +1,21 @@
-
+import json
 import logging
 import requests
+from typing import Optional
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.shortcuts import redirect
-from ninja import NinjaAPI, Router
+from django.http import HttpRequest
+from django.views.decorators.csrf import csrf_exempt
+from ninja import NinjaAPI, Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
-from api.utils import GoogleOAuthConfig
+
+from api.utils import GoogleOAuthConfig, verify_paystack_signature
 from api.models import Transaction, User
-from api.schemas import PaymentInitiateRequest, PaymentInitiateResponse
+from api.schemas import PaymentInitiateRequest, PaymentInitiateResponse, TransactionStatusResponse
 
 logger = logging.getLogger(__name__)
 
@@ -108,35 +112,30 @@ def google_callback(request):
     url_name="paystack-initiate",
 )
 def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
-    """Initiate a Paystack payment transaction"""
-
     try:
-        # Check for existing transaction with same amount (idempotency)
         existing_transaction = Transaction.objects.filter(
             amount=payload.amount, status=Transaction.Status.PENDING
         ).first()
 
         if existing_transaction:
-            return 201, {
+            return Response({
                 "reference": existing_transaction.reference,
                 "authorization_url": existing_transaction.authorization_url,
-            }
+            }, status=201)
 
-        # Initialize transaction with Paystack
         data, meta = paystack_client.transactions.initialize(
             amount=payload.amount,
             email=payload.email or "[email protected]",
             currency="NGN",
         )
 
-        # Create transaction record
         transaction = Transaction.objects.create(
             reference=data["reference"],
             amount=payload.amount,
             currency="NGN",
             status=Transaction.Status.PENDING,
             authorization_url=data["authorization_url"],
-            user=None,  # Optional: link to authenticated user if needed
+            user=None,
         )
 
         return Response({
@@ -155,3 +154,118 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
     except Exception as e:
         logger.error(f"Payment initiation error: {str(e)}")
         return Response({"error": "An error occurred while initiating payment"}, status=500)
+    
+@payments_router.post(
+    "/paystack/webhook",
+    response={200: dict, 400: dict, 500: dict},
+    url_name="paystack-webhook",
+    auth=None,
+)
+@csrf_exempt
+def paystack_webhook(request: HttpRequest):
+    signature = request.headers.get("x-paystack-signature")
+    
+    if not signature:
+        logger.warning("Webhook received without signature")
+        return Response({"error": "invalid signature"}, status=400)
+    
+    payload = request.body
+    
+    if not verify_paystack_signature(payload, signature):
+        logger.warning("Webhook signature verification failed")
+        return Response({"error": "invalid signature"}, status=400)
+    
+    try:
+        event = json.loads(payload.decode('utf-8'))
+        event_type = event.get("event")
+        data = event.get("data", {})
+        
+        logger.info(f"Webhook event received: {event_type}")
+        
+        if event_type == "charge.success":
+            reference = data.get("reference")
+            status = data.get("status")
+            paid_at = data.get("paid_at")
+            
+            if not reference:
+                logger.warning("Webhook missing transaction reference")
+                return Response({"status": True}, status=200)
+            
+            try:
+                transaction = Transaction.objects.get(reference=reference)
+                
+                if status == "success":
+                    transaction.status = Transaction.Status.SUCCESS
+                    transaction.paid_at = paid_at
+                elif status == "failed":
+                    transaction.status = Transaction.Status.FAILED
+                else:
+                    transaction.status = Transaction.Status.PENDING
+                
+                transaction.save()
+                logger.info(f"Transaction {reference} updated to {transaction.status}")
+                
+            except Transaction.DoesNotExist:
+                logger.warning(f"Transaction {reference} not found in database")
+                return Response({"status": True}, status=200)
+        
+        return Response({"status": True}, status=200)
+        
+    except json.JSONDecodeError:
+        logger.error("Failed to parse webhook JSON payload")
+        return Response({"error": "invalid payload"}, status=400)
+        
+    except Exception as e:
+        logger.error(f"Webhook processing error: {str(e)}")
+        return Response({"error": "internal server error"}, status=500)
+    
+@payments_router.get(
+    "/{reference}/status",
+    response={200: TransactionStatusResponse, 400: dict, 404: dict},
+    url_name="transaction-status",
+)
+def get_transaction_status(
+    request,
+    reference: str,
+    refresh: bool = Query(False, description="Refresh from Paystack API"),
+):
+    if not reference or len(reference) < 5:
+        return Response({"error": "Invalid transaction reference format"}, status=400)
+
+    try:
+        transaction = Transaction.objects.get(reference=reference)
+    except Transaction.DoesNotExist:
+        return Response({"error": "transaction not found"}, status=404)
+
+    if refresh:
+        try:
+            data, meta = paystack_client.transactions.verify(reference=reference)
+
+            paystack_status = data.get("status")
+
+            if paystack_status == "success":
+                transaction.status = Transaction.Status.SUCCESS
+                transaction.paid_at = data.get("paid_at")
+            elif paystack_status == "failed":
+                transaction.status = Transaction.Status.FAILED
+            else:
+                transaction.status = Transaction.Status.PENDING
+
+            transaction.save()
+            logger.info(f"Transaction {reference} refreshed from Paystack")
+
+        except APIError as e:
+            logger.warning(
+                f"Failed to refresh transaction {reference} from Paystack: {e.message}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error refreshing transaction {reference}: {str(e)}")
+
+    return Response({
+        "reference": transaction.reference,
+        "status": transaction.status,
+        "amount": transaction.amount,
+        "paid_at": transaction.paid_at,
+        "currency": transaction.currency,
+    }, status=200)

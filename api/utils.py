@@ -1,4 +1,26 @@
+import hmac
+import hashlib
 from django.conf import settings
+
+
+def verify_paystack_signature(payload: bytes, signature: str) -> bool:
+    """
+    Verify Paystack webhook signature using HMAC SHA512.
+    
+    Args:
+        payload: Raw request body as bytes
+        signature: Signature from x-paystack-signature header
+        
+    Returns:
+        bool: True if signature is valid, False otherwise
+    """
+    computed_signature = hmac.new(
+        settings.PAYSTACK_WEBHOOK_SECRET.encode('utf-8'),
+        payload,
+        hashlib.sha512
+    ).hexdigest()
+    
+    return hmac.compare_digest(computed_signature, signature)
 
 class GoogleOAuthConfig:
     CLIENT_ID = settings.GOOGLE_OAUTH_CLIENT_ID

@@ -21,3 +21,17 @@ class PaymentInitiateResponse(BaseModel):
 
     reference: str
     authorization_url: str
+    
+
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+class TransactionStatusResponse(BaseModel):
+    """Schema for transaction status response"""
+
+    reference: str
+    status: str
+    amount: int
+    paid_at: datetime | None = None
+    currency: str = "NGN"
