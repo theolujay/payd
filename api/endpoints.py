@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 api = NinjaAPI(urls_namespace="payd_api")
 api.add_exception_handler(Exception, api_exception_handler)
 
+@api.get("/", summary="API Root / Health Check")
+def root(request):
+    return {"message": "Welcome to PayD API!"}
+
 auth_router = Router()
 api.add_router("/auth", auth_router, tags=["Authentication"])
 
