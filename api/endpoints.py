@@ -7,10 +7,11 @@ from django.conf import settings
 from django.shortcuts import redirect
 from ninja import NinjaAPI, Router
 from ninja.responses import Response
-
+from paystack import PaystackClient, APIError
 
 from api.utils import GoogleOAuthConfig
-from api.models import User
+from api.models import Transaction, User
+from api.schemas import PaymentInitiateRequest, PaymentInitiateResponse
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,10 @@ api = NinjaAPI(urls_namespace="payd_api")
 auth_router = Router()
 api.add_router("/auth", auth_router, tags=["Authentication"])
 
+payments_router = Router()
+api.add_router("/payments", payments_router, tags=["Payments"])
+
+paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
 @auth_router.get("/google", url_name="google-login")
 def google_login(request):
@@ -96,3 +101,57 @@ def google_callback(request):
     except Exception as e:
         logger.error(f"OAuth callback error: {str(e)}")
         return Response({"error": "provider error"}, status=500)
+    
+@payments_router.post(
+    "/paystack/initiate",
+    response={201: PaymentInitiateResponse, 400: dict, 402: dict, 500: dict},
+    url_name="paystack-initiate",
+)
+def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
+    """Initiate a Paystack payment transaction"""
+
+    try:
+        # Check for existing transaction with same amount (idempotency)
+        existing_transaction = Transaction.objects.filter(
+            amount=payload.amount, status=Transaction.Status.PENDING
+        ).first()
+
+        if existing_transaction:
+            return 201, {
+                "reference": existing_transaction.reference,
+                "authorization_url": existing_transaction.authorization_url,
+            }
+
+        # Initialize transaction with Paystack
+        data, meta = paystack_client.transactions.initialize(
+            amount=payload.amount,
+            email=payload.email or "[email protected]",
+            currency="NGN",
+        )
+
+        # Create transaction record
+        transaction = Transaction.objects.create(
+            reference=data["reference"],
+            amount=payload.amount,
+            currency="NGN",
+            status=Transaction.Status.PENDING,
+            authorization_url=data["authorization_url"],
+            user=None,  # Optional: link to authenticated user if needed
+        )
+
+        return Response({
+            "reference": transaction.reference,
+            "authorization_url": transaction.authorization_url,
+        }, status=201)
+
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        return Response({"error": str(e)}, status=400)
+
+    except APIError as e:
+        logger.error(f"Paystack API error: {e.message}")
+        return Response({"error": "payment initiation failed"}, status=402)
+
+    except Exception as e:
+        logger.error(f"Payment initiation error: {str(e)}")
+        return Response({"error": "An error occurred while initiating payment"}, status=500)

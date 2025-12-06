@@ -123,6 +123,7 @@ dependencies = [
     { name = "django" },
     { name = "django-ninja" },
     { name = "google" },
+    { name = "paystack-api-wrapper" },
     { name = "python-dotenv" },
     { name = "requests" },
 ]
@@ -132,8 +133,21 @@ requires-dist = [
     { name = "django", specifier = ">=6.0" },
     { name = "django-ninja", specifier = ">=1.5.1" },
     { name = "google", specifier = ">=3.0.0" },
+    { name = "paystack-api-wrapper", specifier = ">=0.1.1" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "requests", specifier = ">=2.32.5" },
+]
+
+[[package]]
+name = "paystack-api-wrapper"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/39/754aff614bbbce90a0730549ccd20a71320027527ff93f287b48b3e4c958/paystack_api_wrapper-0.1.1.tar.gz", hash = "sha256:d5bc1dca0dc0a894101e99e134d1548ead6fc9e64dfe7de16785097aa886ae2f", size = 117753, upload-time = "2025-08-21T02:47:20.493Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/ed/21a853d18be7111cbd84a9675e9bff9207c5248bc1451cf56b0ed8662ecb/paystack_api_wrapper-0.1.1-py3-none-any.whl", hash = "sha256:1b6d5112e797cb70e084de612b81334f8c51ceeb9d51da21472b782e4d9eca3f", size = 54904, upload-time = "2025-08-21T02:47:18.277Z" },
 ]
 
 [[package]]
