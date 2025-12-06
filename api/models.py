@@ -1,6 +1,6 @@
 import uuid
 from django.db import models
-
+from django.utils import timezone
 from django.contrib.auth.models import BaseUserManager, AbstractUser
 
 class CustomUserManager(BaseUserManager):
@@ -54,3 +54,43 @@ class User(AbstractUser):
     def get_full_name(self):
         """Return the user's full name."""
         return f"{self.first_name} {self.last_name}".strip()
+
+class Transaction(models.Model):
+    """Transaction model for storing payment information"""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(
+        default=uuid.uuid4, unique=True, primary_key=True, editable=False
+    )
+    reference = models.CharField(max_length=255, unique=True, db_index=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transactions",
+    )
+    amount = models.BigIntegerField(help_text="Amount in smallest currency unit (Kobo)")
+    currency = models.CharField(max_length=3, default="NGN")
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    authorization_url = models.URLField(blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["reference"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Transaction {self.reference} - {self.status}"

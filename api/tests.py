@@ -1,10 +1,12 @@
 # api/tests.py
 from urllib.parse import urlparse, parse_qs
 from unittest.mock import patch, Mock
-from django.test import TestCase
-from django.urls import reverse
-from api.models import User
 
+from django.test import TestCase
+from django.db import IntegrityError
+from django.urls import reverse
+
+from api.models import User, Transaction
 
 class TestGoogleAuth(TestCase):
     def test_sign_in_redirect(self):
@@ -166,3 +168,138 @@ class TestGoogleAuth(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("error", response.json())
         self.assertEqual(response.json()["error"], "provider error")
+        
+class TestTransactionModel(TestCase):
+    def setUp(self):
+        """Create a test user for foreign key relationships"""
+        self.user = User.objects.create_user(
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+        )
+
+    def test_transaction_creation(self):
+        """Test that a transaction can be created with all required fields"""
+        transaction = Transaction.objects.create(
+            reference="TEST_REF_001",
+            user=self.user,
+            amount=500000,  # 5000 NGN in Kobo
+            currency="NGN",
+            status=Transaction.Status.PENDING,
+            authorization_url="https://checkout.paystack.com/test123",
+        )
+
+        self.assertEqual(transaction.reference, "TEST_REF_001")
+        self.assertEqual(transaction.user, self.user)
+        self.assertEqual(transaction.amount, 500000)
+        self.assertEqual(transaction.currency, "NGN")
+        self.assertEqual(transaction.status, Transaction.Status.PENDING)
+        self.assertIsNotNone(transaction.id)
+        self.assertIsNotNone(transaction.created_at)
+        self.assertIsNotNone(transaction.updated_at)
+
+    def test_transaction_reference_unique(self):
+        """Test that reference field has unique constraint"""
+        Transaction.objects.create(
+            reference="UNIQUE_REF",
+            amount=100000,
+        )
+
+        with self.assertRaises(IntegrityError):
+            Transaction.objects.create(
+                reference="UNIQUE_REF",
+                amount=200000,
+            )
+
+    def test_transaction_user_nullable(self):
+        """Test that user field can be null"""
+        transaction = Transaction.objects.create(
+            reference="NO_USER_REF",
+            amount=100000,
+            user=None,
+        )
+
+        self.assertIsNone(transaction.user)
+
+    def test_transaction_status_choices(self):
+        """Test that status field uses correct choices"""
+        # Test pending
+        t1 = Transaction.objects.create(
+            reference="REF_PENDING",
+            amount=100000,
+            status=Transaction.Status.PENDING,
+        )
+        self.assertEqual(t1.status, "pending")
+
+        # Test success
+        t2 = Transaction.objects.create(
+            reference="REF_SUCCESS",
+            amount=100000,
+            status=Transaction.Status.SUCCESS,
+        )
+        self.assertEqual(t2.status, "success")
+
+        # Test failed
+        t3 = Transaction.objects.create(
+            reference="REF_FAILED",
+            amount=100000,
+            status=Transaction.Status.FAILED,
+        )
+        self.assertEqual(t3.status, "failed")
+
+    def test_transaction_default_status_pending(self):
+        """Test that default status is pending"""
+        transaction = Transaction.objects.create(
+            reference="DEFAULT_STATUS",
+            amount=100000,
+        )
+
+        self.assertEqual(transaction.status, Transaction.Status.PENDING)
+
+    def test_transaction_default_currency_ngn(self):
+        """Test that default currency is NGN"""
+        transaction = Transaction.objects.create(
+            reference="DEFAULT_CURRENCY",
+            amount=100000,
+        )
+
+        self.assertEqual(transaction.currency, "NGN")
+
+    def test_transaction_paid_at_nullable(self):
+        """Test that paid_at field can be null"""
+        transaction = Transaction.objects.create(
+            reference="NO_PAID_AT",
+            amount=100000,
+        )
+
+        self.assertIsNone(transaction.paid_at)
+
+    def test_transaction_indexes_exist(self):
+        """Test that appropriate indexes exist"""
+        # This test verifies the indexes are defined in Meta
+        indexes = Transaction._meta.indexes
+        index_fields = [idx.fields for idx in indexes]
+
+        self.assertIn(["reference"], index_fields)
+        self.assertIn(["status"], index_fields)
+
+    def test_transaction_ordering(self):
+        """Test that transactions are ordered by created_at desc"""
+        t1 = Transaction.objects.create(reference="REF_1", amount=100000)
+        t2 = Transaction.objects.create(reference="REF_2", amount=200000)
+        t3 = Transaction.objects.create(reference="REF_3", amount=300000)
+
+        transactions = list(Transaction.objects.all())
+        self.assertEqual(transactions[0], t3)
+        self.assertEqual(transactions[1], t2)
+        self.assertEqual(transactions[2], t1)
+
+    def test_transaction_str_representation(self):
+        """Test string representation of transaction"""
+        transaction = Transaction.objects.create(
+            reference="STR_TEST",
+            amount=100000,
+            status=Transaction.Status.SUCCESS,
+        )
+
+        self.assertEqual(str(transaction), "Transaction STR_TEST - success")
