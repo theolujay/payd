@@ -29,6 +29,9 @@ services:
     env_file: .env
     networks:
       - payd_dev 
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
 networks:
   payd_dev:
