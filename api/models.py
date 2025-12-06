@@ -3,14 +3,15 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import BaseUserManager, AbstractUser
 
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager for the user model"""
-    
+
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError("the Email field must be set")
         email = self.normalize_email(email)
-        
+
         if "username" not in extra_fields:
             extra_fields["username"] = email
         extra_fields.setdefault("is_active", True)
@@ -19,7 +20,7 @@ class CustomUserManager(BaseUserManager):
             user.set_password(password)
         user.save(using=self.db)
         return user
-    
+
     def create_superuser(self, email, password=None, **extra_fields):
         """Create and save a superuser with the given email and password."""
         extra_fields.setdefault("is_staff", True)
@@ -31,10 +32,11 @@ class CustomUserManager(BaseUserManager):
             raise ValueError("Superuser must have is_superuser=True.")
 
         return self.create_user(email, password, **extra_fields)
-    
+
+
 class User(AbstractUser):
     """Custom user model"""
-    
+
     id = models.UUIDField(
         default=uuid.uuid4, unique=True, primary_key=True, editable=False
     )
@@ -54,6 +56,7 @@ class User(AbstractUser):
     def get_full_name(self):
         """Return the user's full name."""
         return f"{self.first_name} {self.last_name}".strip()
+
 
 class Transaction(models.Model):
     """Transaction model for storing payment information"""

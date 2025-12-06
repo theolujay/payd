@@ -1,13 +1,14 @@
-
 from pydantic import BaseModel, Field, field_validator
 
 
 class PaymentInitiateRequest(BaseModel):
     """Schema for payment initiation request"""
 
-    amount: int = Field(..., gt=0, description="Amount in Kobo (smallest currency unit)")
+    amount: int = Field(
+        ..., gt=0, description="Amount in Kobo (smallest currency unit)"
+    )
     email: str | None = Field(None, description="Customer email (optional)")
-    
+
     @field_validator("amount")
     @classmethod
     def validate_amount(cls, v):
@@ -21,7 +22,7 @@ class PaymentInitiateResponse(BaseModel):
 
     reference: str
     authorization_url: str
-    
+
 
 from datetime import datetime
 from pydantic import BaseModel, Field

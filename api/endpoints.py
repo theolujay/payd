@@ -15,7 +15,11 @@ from paystack import PaystackClient, APIError
 
 from api.utils import GoogleOAuthConfig, verify_paystack_signature
 from api.models import Transaction, User
-from api.schemas import PaymentInitiateRequest, PaymentInitiateResponse, TransactionStatusResponse
+from api.schemas import (
+    PaymentInitiateRequest,
+    PaymentInitiateResponse,
+    TransactionStatusResponse,
+)
 from api.exceptions import (
     api_exception_handler,
     InvalidRequestException,
@@ -214,9 +218,7 @@ def paystack_webhook(request: HttpRequest):
                     transaction.status = Transaction.Status.PENDING
 
                 transaction.save()
-                logger.info(
-                    f"Transaction {reference} updated to {transaction.status}"
-                )
+                logger.info(f"Transaction {reference} updated to {transaction.status}")
 
             except Transaction.DoesNotExist:
                 logger.warning(f"Transaction {reference} not found in database")

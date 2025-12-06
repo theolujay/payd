@@ -12,6 +12,7 @@ from api.exceptions import (
     api_exception_handler,
 )
 
+
 class ExceptionHandlerTest(TestCase):
     def test_api_exception_handler_handles_base_api_exception(self):
         """
@@ -32,6 +33,7 @@ class ExceptionHandlerTest(TestCase):
             self.assertEqual(response.status_code, 500)
             self.assertEqual(response.message, "An unexpected error occurred.")
             self.assertIn("Unhandled Exception: An unexpected error", cm.output[0])
+
 
 class CustomExceptionsTest(TestCase):
     def test_invalid_request_exception(self):
@@ -58,11 +60,15 @@ class CustomExceptionsTest(TestCase):
         self.assertEqual(exc.status_code, 500)
         self.assertEqual(exc.message, "Third-party service error")
 
+
 class EndpointErrorHandlingTest(TestCase):
     def setUp(self):
         self.client = Client()
 
-    @patch("api.endpoints.get_google_token", side_effect=IntegrationException("Google auth failed"))
+    @patch(
+        "api.endpoints.get_google_token",
+        side_effect=IntegrationException("Google auth failed"),
+    )
     def test_google_callback_integration_error(self, mock_get_google_token):
         """
         Test that the google_callback endpoint returns a 500 error on integration failure.
@@ -79,7 +85,10 @@ class EndpointErrorHandlingTest(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertJSONEqual(response.content, {"detail": "Missing authorization code"})
 
-    @patch("api.endpoints.paystack_client.transactions.initialize", side_effect=HttpError(500, "Paystack error"))
+    @patch(
+        "api.endpoints.paystack_client.transactions.initialize",
+        side_effect=HttpError(500, "Paystack error"),
+    )
     def test_initiate_payment_api_error(self, mock_initialize):
         """
         Test that the initiate_paystack_payment endpoint returns a 500 error on Paystack API failure.
@@ -90,7 +99,9 @@ class EndpointErrorHandlingTest(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 500)
-        self.assertJSONEqual(response.content, {"detail": "An unexpected error occurred."})
+        self.assertJSONEqual(
+            response.content, {"detail": "An unexpected error occurred."}
+        )
 
     def test_get_transaction_status_not_found(self):
         """

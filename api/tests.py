@@ -1,4 +1,3 @@
-
 import json
 import hmac
 import hashlib
@@ -12,7 +11,6 @@ from django.urls import reverse
 from paystack import APIError
 
 from api.models import User, Transaction
-
 
 
 class TestGoogleAuth(TestCase):
@@ -175,7 +173,8 @@ class TestGoogleAuth(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("error", response.json())
         self.assertEqual(response.json()["error"], "provider error")
-        
+
+
 class TestTransactionModel(TestCase):
     def setUp(self):
         """Create a test user for foreign key relationships"""
@@ -310,13 +309,14 @@ class TestTransactionModel(TestCase):
         )
 
         self.assertEqual(str(transaction), "Transaction STR_TEST - success")
-        
 
 
 class TestPaystackPaymentInitiation(TestCase):
     def test_initiate_payment_success(self):
         """Test successful payment initiation"""
-        with patch("api.endpoints.paystack_client.transactions.initialize") as mock_init:
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
             mock_init.return_value = (
                 {
                     "authorization_url": "https://checkout.paystack.com/test123",
@@ -368,7 +368,9 @@ class TestPaystackPaymentInitiation(TestCase):
 
     def test_initiate_payment_paystack_error(self):
         """Test payment initiation when Paystack API fails"""
-        with patch("api.endpoints.paystack_client.transactions.initialize") as mock_init:
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
             mock_init.side_effect = APIError("Paystack error", 400)
 
             url = reverse("payd_api:paystack-initiate")
@@ -392,7 +394,9 @@ class TestPaystackPaymentInitiation(TestCase):
             authorization_url="https://checkout.paystack.com/existing",
         )
 
-        with patch("api.endpoints.paystack_client.transactions.initialize") as mock_init:
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
             url = reverse("payd_api:paystack-initiate")
             response = self.client.post(
                 url,
@@ -412,7 +416,9 @@ class TestPaystackPaymentInitiation(TestCase):
 
     def test_initiate_payment_service_unavailable(self):
         """Test payment initiation when Paystack service is unavailable"""
-        with patch("api.endpoints.paystack_client.transactions.initialize") as mock_init:
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
             mock_init.side_effect = Exception("Connection timeout")
 
             url = reverse("payd_api:paystack-initiate")
@@ -424,7 +430,6 @@ class TestPaystackPaymentInitiation(TestCase):
 
             self.assertEqual(response.status_code, 500)
             self.assertIn("error", response.json())
-            
 
 
 class TestPaystackWebhook(TestCase):
@@ -436,20 +441,20 @@ class TestPaystackWebhook(TestCase):
             status=Transaction.Status.PENDING,
             authorization_url="https://checkout.paystack.com/test",
         )
-        
+
         self.webhook_url = reverse("payd_api:paystack-webhook")
         self.webhook_secret = "test_webhook_secret"
-    
+
     def _generate_signature(self, payload: dict) -> str:
         """Helper to generate valid Paystack signature"""
         json_payload = json.dumps(payload)
         return hmac.new(
-            self.webhook_secret.encode('utf-8'),
-            json_payload.encode('utf-8'),
-            hashlib.sha512
+            self.webhook_secret.encode("utf-8"),
+            json_payload.encode("utf-8"),
+            hashlib.sha512,
         ).hexdigest()
-    
-    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+
+    @patch("api.utils.settings.PAYSTACK_WEBHOOK_SECRET", "test_webhook_secret")
     def test_webhook_success(self):
         """Test successful webhook processing"""
         payload = {
@@ -459,70 +464,70 @@ class TestPaystackWebhook(TestCase):
                 "status": "success",
                 "paid_at": "2024-12-06T10:00:00.000Z",
                 "amount": 500000,
-            }
+            },
         }
-        
+
         signature = self._generate_signature(payload)
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_PAYSTACK_SIGNATURE=signature,
         )
-        
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], True)
-        
+
         # Verify transaction was updated
         self.transaction.refresh_from_db()
         self.assertEqual(self.transaction.status, Transaction.Status.SUCCESS)
         self.assertIsNotNone(self.transaction.paid_at)
-    
+
     def test_webhook_missing_signature(self):
         """Test webhook without signature header"""
         payload = {
             "event": "charge.success",
-            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"}
+            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"},
         }
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
         )
-        
+
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
         self.assertEqual(response.json()["error"], "invalid signature")
-        
+
         # Verify transaction was NOT updated
         self.transaction.refresh_from_db()
         self.assertEqual(self.transaction.status, Transaction.Status.PENDING)
-    
-    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+
+    @patch("api.utils.settings.PAYSTACK_WEBHOOK_SECRET", "test_webhook_secret")
     def test_webhook_invalid_signature(self):
         """Test webhook with invalid signature"""
         payload = {
             "event": "charge.success",
-            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"}
+            "data": {"reference": "TEST_REF_WEBHOOK", "status": "success"},
         }
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_PAYSTACK_SIGNATURE="invalid_signature_123",
         )
-        
+
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"], "invalid signature")
-        
+
         # Verify transaction was NOT updated
         self.transaction.refresh_from_db()
         self.assertEqual(self.transaction.status, Transaction.Status.PENDING)
-    
-    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+
+    @patch("api.utils.settings.PAYSTACK_WEBHOOK_SECRET", "test_webhook_secret")
     def test_webhook_unknown_reference(self):
         """Test webhook with unknown transaction reference"""
         payload = {
@@ -531,50 +536,50 @@ class TestPaystackWebhook(TestCase):
                 "reference": "UNKNOWN_REF",
                 "status": "success",
                 "paid_at": "2024-12-06T10:00:00.000Z",
-            }
+            },
         }
-        
+
         signature = self._generate_signature(payload)
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_PAYSTACK_SIGNATURE=signature,
         )
-        
+
         # Should still return 200 to acknowledge receipt
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], True)
-    
-    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
-    @patch('api.endpoints.Transaction.objects.get')
+
+    @patch("api.utils.settings.PAYSTACK_WEBHOOK_SECRET", "test_webhook_secret")
+    @patch("api.endpoints.Transaction.objects.get")
     def test_webhook_database_error(self, mock_get):
         """Test webhook when database is unavailable"""
         mock_get.side_effect = Exception("Database connection failed")
-        
+
         payload = {
             "event": "charge.success",
             "data": {
                 "reference": "TEST_REF_WEBHOOK",
                 "status": "success",
                 "paid_at": "2024-12-06T10:00:00.000Z",
-            }
+            },
         }
-        
+
         signature = self._generate_signature(payload)
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_PAYSTACK_SIGNATURE=signature,
         )
-        
+
         self.assertEqual(response.status_code, 500)
         self.assertIn("error", response.json())
-    
-    @patch('api.utils.settings.PAYSTACK_WEBHOOK_SECRET', 'test_webhook_secret')
+
+    @patch("api.utils.settings.PAYSTACK_WEBHOOK_SECRET", "test_webhook_secret")
     def test_webhook_failed_transaction(self):
         """Test webhook for failed transaction"""
         payload = {
@@ -583,25 +588,26 @@ class TestPaystackWebhook(TestCase):
                 "reference": "TEST_REF_WEBHOOK",
                 "status": "failed",
                 "paid_at": None,
-            }
+            },
         }
-        
+
         signature = self._generate_signature(payload)
-        
+
         response = self.client.post(
             self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_PAYSTACK_SIGNATURE=signature,
         )
-        
+
         self.assertEqual(response.status_code, 200)
-        
+
         # Verify transaction status updated to failed
         self.transaction.refresh_from_db()
         self.assertEqual(self.transaction.status, Transaction.Status.FAILED)
         self.assertIsNone(self.transaction.paid_at)
-        
+
+
 class TestTransactionStatus(TestCase):
     def setUp(self):
         """Create test transaction"""
