@@ -9,4 +9,5 @@ dependencies = [
     "django-ninja>=1.5.1",
     "google>=3.0.0",
     "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
 ]
