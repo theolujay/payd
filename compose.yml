@@ -21,7 +21,7 @@ services:
     build: .
     volumes:
       - .:/home/payd/app
-      - payd_venv:/home/payd/app/.venv  # Preserve the venv
+      - payd_venv:/home/payd/app/.venv
     ports:
       - "8000:8000"
     depends_on:
@@ -39,4 +39,4 @@ networks:
 
 volumes:
   payd_dev:
-  payd_venv:  # Add this volume
+  payd_venv:
