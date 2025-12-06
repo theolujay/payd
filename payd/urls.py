@@ -5,9 +5,9 @@ URL configuration for payd project.
 from django.contrib import admin
 from django.urls import path
 
-from api.views import payd
+from api.endpoints import api
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/", payd.urls),
+    path("api/", api.urls),
 ]
