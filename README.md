@@ -37,7 +37,7 @@ A simple Django API for handling user authentication via Google OAuth and proces
     cp .env.example .env
     ```
 
-    Open the `.env` file and fill in the required secret keys for Django, Google, and Paystack.
+    Open the .env file and fill in the required secret keys.
 
 4.  **Run database migrations:**
     ```bash
