@@ -15,7 +15,7 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
         bool: True if signature is valid, False otherwise
     """
     computed_signature = hmac.new(
-        settings.PAYSTACK_WEBHOOK_SECRET.encode("utf-8"), payload, hashlib.sha512
+        settings.PAYSTACK_SECRET_KEY.encode("utf-8"), payload, hashlib.sha512
     ).hexdigest()
 
     return hmac.compare_digest(computed_signature, signature)

@@ -34,7 +34,7 @@ api.add_exception_handler(Exception, api_exception_handler)
 
 @api.get("/", summary="API Root / Health Check")
 def root(request):
-    return {"message": "Welcome to PayD API!"}
+    return {"message": "Welcome to Payd API!"}
 
 auth_router = Router()
 api.add_router("/auth", auth_router, tags=["Authentication"])
@@ -207,10 +207,12 @@ def initiate_paystack_payment(
 def paystack_webhook(request: HttpRequest):
     signature = request.headers.get("x-paystack-signature")
     if not signature:
-        raise InvalidRequestException("Invalid signature")
+        logger.warning("Missing Paystack signature header")
+        raise InvalidRequestException("Missing signature")
 
     payload = request.body
     if not verify_paystack_signature(payload, signature):
+        logger.warning("Invalid Paystack signature")
         raise InvalidRequestException("Invalid signature")
 
     try:
