@@ -15,4 +15,5 @@ dependencies = [
     "dj-database-url==3.0.1",
     "uvicorn[standard]>=0.20.0",
     "black>=25.11.0",
+    "pyjwt>=2.10.1",
 ]

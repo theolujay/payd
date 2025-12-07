@@ -1,24 +1,25 @@
 import json
 import logging
 import requests
-from typing import Optional
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.shortcuts import redirect
 from django.http import HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from ninja import NinjaAPI, Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
-
+from api.auth import JWTAuth, create_tokens_for_user, refresh_access_token
 from api.utils import GoogleOAuthConfig, verify_paystack_signature
 from api.models import Transaction, User
 from api.schemas import (
     PaymentInitiateRequest,
     PaymentInitiateResponse,
     TransactionStatusResponse,
+    GoogleAuthURLResponse,
+    TokenResponse,
+    RefreshTokenRequest,
 )
 from api.exceptions import (
     api_exception_handler,
@@ -47,9 +48,23 @@ api.add_router("/payments", payments_router, tags=["Payments"])
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
 
-def get_google_auth_url():
+# ==================== AUTHENTICATION ENDPOINTS ====================
+
+
+@auth_router.get(
+    "/google",
+    response=GoogleAuthURLResponse,
+    url_name="google-login",
+    auth=None,
+)
+def google_login(request):
+    """
+    Get Google OAuth URL for authentication.
+    Copy the returned URL and open it in your browser to sign in.
+    """
     if not GoogleOAuthConfig.CLIENT_ID or not GoogleOAuthConfig.CLIENT_SECRET:
         raise IntegrationException("OAuth not configured")
+
     params = {
         "client_id": GoogleOAuthConfig.CLIENT_ID,
         "redirect_uri": GoogleOAuthConfig.REDIRECT_URI,
@@ -57,103 +72,131 @@ def get_google_auth_url():
         "response_type": "code",
         "access_type": "offline",
     }
-    return f"{GoogleOAuthConfig.AUTH_URI}?{urlencode(params)}"
+
+    auth_url = f"{GoogleOAuthConfig.AUTH_URI}?{urlencode(params)}"
+
+    return {
+        "auth_url": auth_url,
+        "message": "Copy this URL and paste it in your browser to sign in with Google",
+    }
 
 
-def get_google_token(code: str) -> dict:
-    response = requests.post(
-        GoogleOAuthConfig.TOKEN_URI,
-        data={
-            "code": code,
-            "client_id": GoogleOAuthConfig.CLIENT_ID,
-            "client_secret": GoogleOAuthConfig.CLIENT_SECRET,
-            "redirect_uri": GoogleOAuthConfig.REDIRECT_URI,
-            "grant_type": "authorization_code",
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if response.status_code != 200:
-        raise IntegrationException("Invalid authorization code")
-    return response.json()
-
-
-def get_google_user_info(access_token: str) -> dict:
-    response = requests.get(
-        GoogleOAuthConfig.USERINFO_URI,
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    if response.status_code != 200:
-        raise IntegrationException("Failed to fetch user info from provider")
-    return response.json()
-
-
-@auth_router.get("/google", url_name="google-login")
-def google_login(request):
-    auth_url = get_google_auth_url()
-    return redirect(auth_url)
-
-
-@auth_router.get("/google/callback", url_name="google-callback")
+@auth_router.get(
+    "/google/callback",
+    response=TokenResponse,
+    url_name="google-callback",
+    auth=None,
+)
 def google_callback(request):
+    """
+    Google OAuth callback - exchanges auth code for JWT tokens.
+    After signing in with Google, you'll be redirected here.
+    """
     code = request.GET.get("code")
     if not code:
         raise InvalidRequestException("Missing authorization code")
 
-    token_data = get_google_token(code)
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise IntegrationException("Access token not found in provider response")
+    try:
+        # Exchange code for access token
+        token_response = requests.post(
+            GoogleOAuthConfig.TOKEN_URI,
+            data={
+                "code": code,
+                "client_id": GoogleOAuthConfig.CLIENT_ID,
+                "client_secret": GoogleOAuthConfig.CLIENT_SECRET,
+                "redirect_uri": GoogleOAuthConfig.REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
 
-    user_data = get_google_user_info(access_token)
-    user, _ = User.objects.update_or_create(
-        google_id=user_data["id"],
-        defaults={
-            "email": user_data["email"],
-            "username": user_data["email"],
-            "first_name": user_data.get("given_name", ""),
-            "last_name": user_data.get("family_name", ""),
-            "picture_url": user_data.get("picture", ""),
-            "is_email_verified": True,
-        },
-    )
+        if token_response.status_code != 200:
+            raise IntegrationException("Invalid authorization code")
 
-    logger.info(f"User {user.email} authenticated successfully")
-    return Response(
-        {
-            "user_id": str(user.id),
-            "email": user.email,
-            "name": user.get_full_name(),
-        },
-        status=200,
-    )
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+
+        # Get user info from Google
+        userinfo_response = requests.get(
+            GoogleOAuthConfig.USERINFO_URI,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+        if userinfo_response.status_code != 200:
+            raise IntegrationException("Failed to fetch user info from provider")
+
+        user_data = userinfo_response.json()
+
+        # Create or update user
+        user, created = User.objects.update_or_create(
+            google_id=user_data["id"],
+            defaults={
+                "email": user_data["email"],
+                "username": user_data["email"],
+                "first_name": user_data.get("given_name", ""),
+                "last_name": user_data.get("family_name", ""),
+                "picture_url": user_data.get("picture", ""),
+                "is_email_verified": True,
+            },
+        )
+
+        # Generate JWT tokens
+        tokens = create_tokens_for_user(user)
+
+        logger.info(f"User {user.email} authenticated successfully")
+
+        return {
+            "access": tokens["access"],
+            "refresh": tokens["refresh"],
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.get_full_name(),
+                "picture": user.picture_url,
+            },
+        }
+
+    except requests.RequestException as e:
+        logger.error(f"OAuth request error: {str(e)}")
+        raise IntegrationException("Provider communication error")
+
+
+@auth_router.post(
+    "/token/refresh",
+    response=dict,
+    url_name="token-refresh",
+    auth=None,
+)
+def refresh_token(request, payload: RefreshTokenRequest):
+    """
+    Refresh access token using refresh token.
+    """
+    new_access_token = refresh_access_token(payload.refresh)
+    
+    if not new_access_token:
+        raise InvalidRequestException("Invalid or expired refresh token")
+    
+    return {"access": new_access_token}
+
+
+# ==================== PAYMENT ENDPOINTS ====================
 
 
 @payments_router.post(
     "/paystack/initiate",
-    response={201: PaymentInitiateResponse, 400: dict, 402: dict, 500: dict},
+    response={201: PaymentInitiateResponse},
     url_name="paystack-initiate",
+    auth=JWTAuth(),
 )
-def initiate_paystack_payment(
-    request,
-    payload: PaymentInitiateRequest,
-    user_id: Optional[str] = Query(
-        None, description="ID of the user initiating the payment"
-    ),
-):
-    user = None
-    email = payload.email
-
-    if user_id:
-        try:
-            user = User.objects.get(id=user_id)
-            email = user.email
-        except User.DoesNotExist:
-            raise NotFoundException("User not found")
-
-    if not email:
-        raise InvalidRequestException("Email is required when user_id is not provided")
+def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
+    """
+    Initiate payment - requires JWT authentication.
+    Use: Authorization: Bearer <your_access_token>
+    """
+    user = request.auth  # Authenticated user from JWT
 
     try:
+        # Check for existing pending transaction
         existing_transaction = Transaction.objects.filter(
             amount=payload.amount, status=Transaction.Status.PENDING, user=user
         ).first()
@@ -170,12 +213,14 @@ def initiate_paystack_payment(
                 status=201,
             )
 
+        # Initialize transaction with Paystack
         data, _ = paystack_client.transactions.initialize(
             amount=payload.amount,
-            email=email,
+            email=user.email,
             currency="NGN",
         )
 
+        # Create transaction record
         transaction = Transaction.objects.create(
             reference=data["reference"],
             amount=payload.amount,
@@ -184,7 +229,9 @@ def initiate_paystack_payment(
             authorization_url=data["authorization_url"],
             user=user,
         )
+
         logger.info(f"Payment initiated with reference {transaction.reference}")
+
         return Response(
             {
                 "reference": transaction.reference,
@@ -209,6 +256,7 @@ def initiate_paystack_payment(
 )
 @csrf_exempt
 def paystack_webhook(request: HttpRequest):
+    """Handle Paystack webhook notifications"""
     signature = request.headers.get("x-paystack-signature")
     if not signature:
         logger.warning("Missing Paystack signature header")
@@ -258,20 +306,30 @@ def paystack_webhook(request: HttpRequest):
 
 @payments_router.get(
     "/{reference}/status",
-    response={200: TransactionStatusResponse, 400: dict, 404: dict},
+    response={200: TransactionStatusResponse},
     url_name="transaction-status",
+    auth=JWTAuth(),
 )
 def get_transaction_status(
     request,
     reference: str,
     refresh: bool = Query(False, description="Refresh from Paystack API"),
 ):
+    """
+    Get transaction status - requires JWT authentication.
+    Use: Authorization: Bearer <your_access_token>
+    """
     if not reference or len(reference) < 5:
         raise InvalidRequestException("Invalid transaction reference format")
 
     try:
         transaction = Transaction.objects.get(reference=reference)
     except Transaction.DoesNotExist:
+        raise NotFoundException("Transaction not found")
+
+    # Verify user owns this transaction
+    user = request.auth
+    if transaction.user and transaction.user.id != user.id:
         raise NotFoundException("Transaction not found")
 
     if refresh:
