@@ -47,10 +47,6 @@ api.add_router("/payments", payments_router, tags=["Payments"])
 
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
-
-# ==================== AUTHENTICATION ENDPOINTS ====================
-
-
 @auth_router.get(
     "/google",
     response=GoogleAuthURLResponse,
@@ -76,8 +72,7 @@ def google_login(request):
     auth_url = f"{GoogleOAuthConfig.AUTH_URI}?{urlencode(params)}"
 
     return {
-        "auth_url": auth_url,
-        "message": "Copy this URL and paste it in your browser to sign in with Google",
+        "auth_url": auth_url
     }
 
 
@@ -97,7 +92,6 @@ def google_callback(request):
         raise InvalidRequestException("Missing authorization code")
 
     try:
-        # Exchange code for access token
         token_response = requests.post(
             GoogleOAuthConfig.TOKEN_URI,
             data={
@@ -116,7 +110,6 @@ def google_callback(request):
         token_data = token_response.json()
         access_token = token_data.get("access_token")
 
-        # Get user info from Google
         userinfo_response = requests.get(
             GoogleOAuthConfig.USERINFO_URI,
             headers={"Authorization": f"Bearer {access_token}"},
@@ -127,8 +120,7 @@ def google_callback(request):
 
         user_data = userinfo_response.json()
 
-        # Create or update user
-        user, created = User.objects.update_or_create(
+        user, _ = User.objects.update_or_create(
             google_id=user_data["id"],
             defaults={
                 "email": user_data["email"],
@@ -140,7 +132,6 @@ def google_callback(request):
             },
         )
 
-        # Generate JWT tokens
         tokens = create_tokens_for_user(user)
 
         logger.info(f"User {user.email} authenticated successfully")
@@ -178,10 +169,6 @@ def refresh_token(request, payload: RefreshTokenRequest):
     
     return {"access": new_access_token}
 
-
-# ==================== PAYMENT ENDPOINTS ====================
-
-
 @payments_router.post(
     "/paystack/initiate",
     response={201: PaymentInitiateResponse},
@@ -193,10 +180,9 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
     Initiate payment - requires JWT authentication.
     Use: Authorization: Bearer <your_access_token>
     """
-    user = request.auth  # Authenticated user from JWT
+    user = request.auth
 
     try:
-        # Check for existing pending transaction
         existing_transaction = Transaction.objects.filter(
             amount=payload.amount, status=Transaction.Status.PENDING, user=user
         ).first()
@@ -212,15 +198,13 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
                 },
                 status=201,
             )
-
-        # Initialize transaction with Paystack
+            
         data, _ = paystack_client.transactions.initialize(
             amount=payload.amount,
             email=user.email,
             currency="NGN",
         )
 
-        # Create transaction record
         transaction = Transaction.objects.create(
             reference=data["reference"],
             amount=payload.amount,

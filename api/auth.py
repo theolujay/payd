@@ -1,8 +1,3 @@
-# =============================================================================
-# INSTALLATION: pip install PyJWT  (or uv add PyJWT)
-# =============================================================================
-
-# ============================= api/auth.py ===================================
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional, Any

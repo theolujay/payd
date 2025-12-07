@@ -1,10 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
-
-# ==================== AUTHENTICATION SCHEMAS ====================
-
-
 class GoogleAuthURLResponse(BaseModel):
     """Response with Google OAuth URL"""
 
@@ -34,20 +30,16 @@ class RefreshTokenRequest(BaseModel):
 
     refresh: str = Field(..., description="Refresh token")
 
-
-# ==================== PAYMENT SCHEMAS ====================
-
-
 class PaymentInitiateRequest(BaseModel):
     """Schema for payment initiation request"""
 
-    amount: int = Field(..., gt=0, description="Amount in Kobo (smallest currency unit)")
+    amount: int = Field(5000, gt=0, description="Amount in Kobo (smallest currency unit)")
 
     @field_validator("amount")
     @classmethod
     def validate_amount(cls, v):
-        if v <= 0:
-            raise ValueError("Amount must be greater than 0")
+        if v < 5000:
+            raise ValueError("Amount must be at least 5000 (50 naira)")
         return v
 
 
