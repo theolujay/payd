@@ -5,7 +5,6 @@ class GoogleAuthURLResponse(BaseModel):
     """Response with Google OAuth URL"""
 
     auth_url: str
-    message: str = "Copy this URL and paste it in your browser to sign in with Google"
 
 
 class UserInfo(BaseModel):
