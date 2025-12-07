@@ -32,9 +32,11 @@ logger = logging.getLogger(__name__)
 api = NinjaAPI(urls_namespace="payd_api")
 api.add_exception_handler(Exception, api_exception_handler)
 
+
 @api.get("/", summary="API Root / Health Check")
 def root(request):
     return {"message": "Welcome to Payd API!"}
+
 
 auth_router = Router()
 api.add_router("/auth", auth_router, tags=["Authentication"])
@@ -134,7 +136,9 @@ def google_callback(request):
 def initiate_paystack_payment(
     request,
     payload: PaymentInitiateRequest,
-    user_id: Optional[str] = Query(None, description="ID of the user initiating the payment"),
+    user_id: Optional[str] = Query(
+        None, description="ID of the user initiating the payment"
+    ),
 ):
     user = None
     email = payload.email

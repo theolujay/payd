@@ -311,7 +311,6 @@ class TestTransactionModel(TestCase):
         self.assertEqual(str(transaction), "Transaction STR_TEST - success")
 
 
-
 class TestPaystackPaymentInitiation(TestCase):
     def setUp(self):
         """Create a test user"""
@@ -386,7 +385,7 @@ class TestPaystackPaymentInitiation(TestCase):
             self.assertEqual(transaction.amount, 500000)
             self.assertEqual(transaction.status, Transaction.Status.PENDING)
             self.assertEqual(transaction.user, self.user)
-            
+
             # Verify paystack was called with the user's email
             mock_init.assert_called_once_with(
                 amount=500000,
