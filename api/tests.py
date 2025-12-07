@@ -311,9 +311,18 @@ class TestTransactionModel(TestCase):
         self.assertEqual(str(transaction), "Transaction STR_TEST - success")
 
 
+
 class TestPaystackPaymentInitiation(TestCase):
-    def test_initiate_payment_success(self):
-        """Test successful payment initiation"""
+    def setUp(self):
+        """Create a test user"""
+        self.user = User.objects.create_user(
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+        )
+
+    def test_initiate_payment_success_with_email(self):
+        """Test successful payment initiation with email"""
         with patch(
             "api.endpoints.paystack_client.transactions.initialize"
         ) as mock_init:
@@ -329,7 +338,7 @@ class TestPaystackPaymentInitiation(TestCase):
             url = reverse("payd_api:paystack-initiate")
             response = self.client.post(
                 url,
-                data={"amount": 500000},
+                data={"amount": 500000, "email": "test@example.com"},
                 content_type="application/json",
             )
 
@@ -343,6 +352,86 @@ class TestPaystackPaymentInitiation(TestCase):
             transaction = Transaction.objects.get(reference="TEST_REF_12345")
             self.assertEqual(transaction.amount, 500000)
             self.assertEqual(transaction.status, Transaction.Status.PENDING)
+            self.assertIsNone(transaction.user)
+
+    def test_initiate_payment_success_with_user_id(self):
+        """Test successful payment initiation with user_id"""
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
+            mock_init.return_value = (
+                {
+                    "authorization_url": "https://checkout.paystack.com/test123",
+                    "access_code": "test_access",
+                    "reference": "TEST_REF_12345",
+                },
+                {},
+            )
+
+            url = f'{reverse("payd_api:paystack-initiate")}?user_id={self.user.id}'
+            response = self.client.post(
+                url,
+                data={"amount": 500000},
+                content_type="application/json",
+            )
+
+            self.assertEqual(response.status_code, 201)
+            data = response.json()
+            self.assertIn("reference", data)
+            self.assertIn("authorization_url", data)
+            self.assertEqual(data["reference"], "TEST_REF_12345")
+
+            # Verify transaction was created and associated with user
+            transaction = Transaction.objects.get(reference="TEST_REF_12345")
+            self.assertEqual(transaction.amount, 500000)
+            self.assertEqual(transaction.status, Transaction.Status.PENDING)
+            self.assertEqual(transaction.user, self.user)
+            
+            # Verify paystack was called with the user's email
+            mock_init.assert_called_once_with(
+                amount=500000,
+                email=self.user.email,
+                currency="NGN",
+            )
+
+    def test_initiate_payment_with_user_id_and_email(self):
+        """Test that user_id takes precedence over email"""
+        with patch(
+            "api.endpoints.paystack_client.transactions.initialize"
+        ) as mock_init:
+            mock_init.return_value = (
+                {"authorization_url": "", "reference": "test_ref"},
+                {},
+            )
+            url = f'{reverse("payd_api:paystack-initiate")}?user_id={self.user.id}'
+            self.client.post(
+                url,
+                data={"amount": 500000, "email": "wrong@example.com"},
+                content_type="application/json",
+            )
+            mock_init.assert_called_once_with(
+                amount=500000, email=self.user.email, currency="NGN"
+            )
+
+    def test_initiate_payment_with_non_existent_user_id(self):
+        """Test payment initiation with non-existent user_id"""
+        url = f'{reverse("payd_api:paystack-initiate")}?user_id=non-existent-id'
+        response = self.client.post(
+            url,
+            data={"amount": 500000},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_initiate_payment_without_email_or_user_id(self):
+        """Test payment initiation without email or user_id"""
+        url = reverse("payd_api:paystack-initiate")
+        response = self.client.post(
+            url,
+            data={"amount": 500000},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_initiate_payment_invalid_amount(self):
         """Test payment initiation with invalid amount"""

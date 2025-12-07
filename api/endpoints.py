@@ -131,10 +131,27 @@ def google_callback(request):
     response={201: PaymentInitiateResponse, 400: dict, 402: dict, 500: dict},
     url_name="paystack-initiate",
 )
-def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
+def initiate_paystack_payment(
+    request,
+    payload: PaymentInitiateRequest,
+    user_id: Optional[str] = Query(None, description="ID of the user initiating the payment"),
+):
+    user = None
+    email = payload.email
+
+    if user_id:
+        try:
+            user = User.objects.get(id=user_id)
+            email = user.email
+        except User.DoesNotExist:
+            raise NotFoundException("User not found")
+
+    if not email:
+        raise InvalidRequestException("Email is required when user_id is not provided")
+
     try:
         existing_transaction = Transaction.objects.filter(
-            amount=payload.amount, status=Transaction.Status.PENDING
+            amount=payload.amount, status=Transaction.Status.PENDING, user=user
         ).first()
 
         if existing_transaction:
@@ -151,7 +168,7 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
 
         data, _ = paystack_client.transactions.initialize(
             amount=payload.amount,
-            email=payload.email or "[email protected]",
+            email=email,
             currency="NGN",
         )
 
@@ -161,7 +178,7 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
             currency="NGN",
             status=Transaction.Status.PENDING,
             authorization_url=data["authorization_url"],
-            user=None,
+            user=user,
         )
         logger.info(f"Payment initiated with reference {transaction.reference}")
         return Response(
