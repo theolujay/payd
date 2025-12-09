@@ -7,8 +7,11 @@ from urllib.parse import urlencode
 
 from ninja import NinjaAPI, Router
 
-from api.auth import create_tokens_for_user, refresh_access_token
-from api.utils import GoogleOAuthConfig
+from api.utils import (
+    GoogleOAuthConfig,
+    create_tokens_for_user,
+    refresh_access_token,
+)
 from api.models import User
 from api.schemas import (
     GoogleAuthURLResponse,

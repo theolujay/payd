@@ -11,8 +11,7 @@ from ninja import NinjaAPI, Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
-from api.auth import JWTAuth
-from api.utils import verify_paystack_signature
+from api.utils import JWTAuth, verify_paystack_signature
 from api.models import Transaction
 from api.schemas import (
     PaymentInitiateRequest,
