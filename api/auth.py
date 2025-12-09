@@ -1,17 +1,16 @@
-import jwt
+from typing import Optional
 from datetime import datetime, timedelta
-from typing import Optional, Any
+
+import jwt
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from ninja.security import HttpBearer
 
-User = get_user_model()
-
+from api.models import User
 
 class JWTAuth(HttpBearer):
-    """JWT Authentication for Django Ninja"""
+    """JWT Authentication"""
     
-    def authenticate(self, request, token: str) -> Optional[Any]:
+    def authenticate(self, request, token: str) -> Optional[User]:
         try:
             payload = jwt.decode(
                 token,
@@ -20,6 +19,7 @@ class JWTAuth(HttpBearer):
             )
             
             user_id = payload.get("user_id")
+            
             if not user_id:
                 return None
             
@@ -30,30 +30,30 @@ class JWTAuth(HttpBearer):
             return None
 
 
-def create_access_token(user: Any) -> str:
+def create_access_token(user: User) -> str:
     """Create access token (1 hour expiry)"""
     payload = {
         "user_id": str(user.id),
         "email": user.email,
-        "exp": datetime.utcnow() + timedelta(hours=1),
-        "iat": datetime.utcnow(),
+        "exp": datetime.now(datetime.UTC)+ timedelta(hours=1),
+        "iat": datetime.now(datetime.UTC),
         "type": "access"
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
-def create_refresh_token(user: Any) -> str:
+def create_refresh_token(user: User) -> str:
     """Create refresh token (7 days expiry)"""
     payload = {
         "user_id": str(user.id),
-        "exp": datetime.utcnow() + timedelta(days=7),
-        "iat": datetime.utcnow(),
+        "exp": datetime.now(datetime.UTC) + timedelta(days=7),
+        "iat": datetime.now(datetime.UTC),
         "type": "refresh"
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
-def create_tokens_for_user(user: Any) -> dict:
+def create_tokens_for_user(user: User) -> dict:
     """Create both access and refresh tokens"""
     return {
         "access": create_access_token(user),

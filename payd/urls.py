@@ -11,8 +11,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 
+from api.routes import api
 
-from api.endpoints import api
+
+@api.get("/", summary="API Root / Health Check")
+def root(request):
+    return {"message": "Welcome to Payd API!"}
 
 urlpatterns = [
     path("admin/", admin.site.urls),
