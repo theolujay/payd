@@ -29,7 +29,7 @@ services:
       - payd_db:/var/lib/postgresql/data
     networks:
       - payd
-  payd:
+  app:
     networks:
       - payd
     labels:

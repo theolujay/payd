@@ -2,11 +2,18 @@ services:
   db:
     volumes:
       - payd_db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     networks:
       - payd_dev
-  payd:
+  app:
+    command: "python manage.py runserver"
     networks:
       - payd_dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db
 
 
 networks:
