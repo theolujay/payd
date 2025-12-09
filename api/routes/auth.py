@@ -22,6 +22,7 @@ from api.utils import (
 from api.models import User, Wallet, APIKey
 from api.schemas import (
     GoogleAuthURLResponse,
+    RolloverAPIKeyRequest,
     TokenResponse,
     RefreshTokenRequest,
     CreateAPIKeysRequest,
@@ -32,7 +33,13 @@ from api.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-
+now = timezone.now()
+expiry_refs = {
+    "1H": now + timedelta(hours=1),
+    "1D": now + timedelta(days=1),
+    "1M": now + timedelta(days=30),
+    "1Y": now + timedelta(weeks=52)
+}
 
 router = Router()
 
@@ -176,7 +183,7 @@ def refresh_token(request, payload: RefreshTokenRequest):
     url_name="keys-create",
     auth=JWTAuth(),
 )
-def create_api_keys(request, payload: CreateAPIKeysRequest):
+def create_api_key(request, payload: CreateAPIKeysRequest):
     """
     Create API keys for the authenticated user
     """
@@ -188,15 +195,8 @@ def create_api_keys(request, payload: CreateAPIKeysRequest):
             {
                 "detail": "Maximum 5 active API keys allowed"
             },
-            status=404
+            status=403
         )
-        
-    expiry_refs = {
-        "1H": timezone.now() + timedelta(hours=1),
-        "1D": timezone.now() + timedelta(days=1),
-        "1M": timezone.now() + timedelta(days=30),
-        "1Y": timezone.now() + timedelta(weeks=52)
-    }
     
     try:
         plain_key, hashed_key = generate_api_key()
@@ -218,3 +218,56 @@ def create_api_keys(request, payload: CreateAPIKeysRequest):
     except DatabaseError as e:
         logger.error(f"Database error during api_key creation: {str(e)}")
         return Response({"detail": "Unexpected error creating api_key"}, status=503)
+
+@router.post(
+    "keys/rollover",
+    response=dict,
+    url_name="keys-rollover",
+    auth=JWTAuth(),
+)
+def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
+    """Rollover expired key using ID"""
+    try:
+        user = request.auth
+        old_api_key = APIKey.objects.get(id=payload.expired_key_id)
+        if old_api_key is None:
+            return Response(
+                {
+                    "detail": "API key not found"
+                },
+                404
+            )
+        if not old_api_key.expires_at < now:
+            return Response(
+                {
+                    "Key is not expired. Cannot rollover."
+                },
+                status=403
+            )
+        api_keys = APIKey.objects.filter(user=user, is_active=True)
+        num_of_api_keys = api_keys.count()
+        if num_of_api_keys >= 5:
+            return Response(
+                {
+                    "detail": "Maximum 5 active API keys allowed"
+                },
+                status=403
+            )
+        plain_key, hashed_key = generate_api_key()        
+        new_api_key = APIKey.objects.create(
+            user=user,
+            name=old_api_key.name,
+            key_hash=hashed_key,
+            permissions=old_api_key.permissions,
+            expires_at=expiry_refs[payload.expiry]
+        )
+        return Response(
+            {
+                "api_key": plain_key,
+                "expires_at": new_api_key.expires_at
+            },
+            status=201            
+        )
+    except DatabaseError as e:
+        logger.error(f"Database error during api_key rollover: {str(e)}")
+        return Response({"detail": "Unexpected error rolling over api_key"}, status=503)

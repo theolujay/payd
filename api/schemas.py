@@ -1,3 +1,4 @@
+from uuid import UUID
 from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
@@ -79,6 +80,19 @@ class CreateAPIKeysRequest(BaseModel):
         if v not in ["read", "deposit", "transfer"]:
             raise ValueError("Allowed permissions are: 'read', 'deposit', 'transfer")
         return v
+    
+    @field_validator("expiry")
+    @classmethod
+    def validate_expiry(cls, v):
+        if v not in ["1H", "1D", "1M", "1Y"]:
+            raise ValueError("Allowed expiry format: '1H', '1D', '1M', '1Y'")
+        return v
+    
+class RolloverAPIKeyRequest(BaseModel):
+    """Schema for API key rollover"""
+    
+    expired_key_id: UUID
+    expiry: str
     
     @field_validator("expiry")
     @classmethod
