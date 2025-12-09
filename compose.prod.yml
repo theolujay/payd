@@ -1,0 +1,49 @@
+services:
+  traefik:
+    image: traefik:latest
+    command:
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=payd_dev"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls=true"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.le.acme.email=theolujay.dev@gmail.com"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.le.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - payd_letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - payd
+  db:
+    volumes:
+      - payd_db:/var/lib/postgresql/data
+    networks:
+      - payd
+  payd:
+    networks:
+      - payd
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.payd.rule=Host(`payd.theolujay.dev`)"
+      - "traefik.http.routers.payd.entrypoints=websecure"
+      - "traefik.http.routers.payd.tls.certresolver=le"
+      - "traefik.http.routers.payd.tls=true"
+      - "traefik.http.services.payd.loadbalancer.server.port=8000"
+
+networks:
+  payd:
+    external: true
+
+volumes:
+  payd_db:
+  payd_letsencrypt:

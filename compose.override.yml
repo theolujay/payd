@@ -1,0 +1,17 @@
+services:
+  db:
+    volumes:
+      - payd_db:/var/lib/postgresql/data
+    networks:
+      - payd_dev
+  payd:
+    networks:
+      - payd_dev
+
+
+networks:
+  payd_dev:
+    external: true
+
+volumes:
+  payd_db:
