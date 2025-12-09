@@ -113,12 +113,10 @@ class Transaction(models.Model):
 class APIKey(models.Model):
 
     class Permission(models.TextChoices):
-        READ_WALLET = "read_wallet", "Read Wallet"
-        CREATE_TRANSACTION = "create_transaction", "Create Transaction"
-        READ_TRANSACTION = "read_transaction", "Read Transaction"
-        INITIATE_TRANSFER = "initiate_transfer", "Initiate Transfer"
-        MANAGE_API_KEYS = "manage_api_keys", "Manage API Keys"
-
+        READ = "read", "Read Wallet & Transactions"
+        DEPOSIT = "deposit", "Create Deposits"
+        TRANSFER = "transfer", "Initiate Transfers"
+        
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_keys")
     name = models.CharField(
@@ -131,7 +129,7 @@ class APIKey(models.Model):
         help_text="List of permissions this API key grants",
     )
     expires_at = models.DateTimeField(null=True, blank=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 

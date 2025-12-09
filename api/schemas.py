@@ -1,3 +1,4 @@
+from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
@@ -57,3 +58,31 @@ class TransactionStatusResponse(BaseModel):
     amount: int
     paid_at: datetime | None = None
     currency: str = "NGN"
+
+class CreateAPIKeysRequest(BaseModel):
+    """Schema for creating API keys"""
+    
+    name: str
+    permissions: List[str]
+    expiry: str
+    
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if len(v) > 30:
+            raise ValueError("Allowed permissions are: 'read', 'deposit', 'transfer")
+        return v
+    
+    @field_validator("permissions")
+    @classmethod
+    def validate_permissions(cls, v):
+        if v not in ["read", "deposit", "transfer"]:
+            raise ValueError("Allowed permissions are: 'read', 'deposit', 'transfer")
+        return v
+    
+    @field_validator("expiry")
+    @classmethod
+    def validate_expiry(cls, v):
+        if v not in ["1H", "1D", "1M", "1Y"]:
+            raise ValueError("Allowed expiry format: '1H', '1D', '1M', '1Y'")
+        return v

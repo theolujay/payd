@@ -1,15 +1,33 @@
 import hmac
+import secrets
 import hashlib
 from typing import Optional
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.contrib.auth.hashers import make_password, check_password
 
 import jwt
 from django.conf import settings
 from ninja.security import HttpBearer
 
-from api.models import User
+from api.models import APIKey, User
 
+def generate_api_key():
+    """
+    Make a secure, hashed API key
+    """
+    plain_key = secrets.token_urlsafe(32)
+    hashed_key = make_password(plain_key)
+    return plain_key, hashed_key
+    
+def verify_api_key(plain_key):
+    try:
+        api_key = APIKey.objects.get(key_hash__startswith=plain_key[:10])
+        if check_password(plain_key, api_key.key_hash):
+            return api_key
+    except APIKey.DoesNotExist:
+        return None
+    
 class JWTAuth(HttpBearer):
     """JWT Authentication"""
     

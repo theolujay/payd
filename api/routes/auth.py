@@ -3,6 +3,8 @@ Auth-related endpoints.
 """
 import logging
 from django.db import DatabaseError
+from django.utils import timezone
+from datetime import datetime, timedelta
 import requests
 from urllib.parse import urlencode
 
@@ -11,14 +13,18 @@ from ninja.responses import Response
 
 from api.utils import (
     GoogleOAuthConfig,
+    JWTAuth,
     create_tokens_for_user,
     refresh_access_token,
+    generate_api_key,
+    verify_api_key,
 )
-from api.models import User, Wallet
+from api.models import User, Wallet, APIKey
 from api.schemas import (
     GoogleAuthURLResponse,
     TokenResponse,
     RefreshTokenRequest,
+    CreateAPIKeysRequest,
 )
 from api.exceptions import (
     InvalidRequestException,
@@ -163,3 +169,52 @@ def refresh_token(request, payload: RefreshTokenRequest):
         raise InvalidRequestException("Invalid or expired refresh token")
     
     return {"access": new_access_token}
+
+@router.post(
+    "/keys/create",
+    response=dict,
+    url_name="keys-create",
+    auth=JWTAuth(),
+)
+def create_api_keys(request, payload: CreateAPIKeysRequest):
+    """
+    Create API keys for the authenticated user
+    """
+    user = request.auth
+    api_keys = APIKey.objects.filter(user=user, is_active=True)
+    num_of_api_keys = api_keys.count()
+    if num_of_api_keys >= 5:
+        return Response(
+            {
+                "detail": "Maximum 5 active API keys allowed"
+            },
+            status=404
+        )
+        
+    expiry_refs = {
+        "1H": timezone.now() + timedelta(hours=1),
+        "1D": timezone.now() + timedelta(days=1),
+        "1M": timezone.now() + timedelta(days=30),
+        "1Y": timezone.now() + timedelta(weeks=52)
+    }
+    
+    try:
+        plain_key, hashed_key = generate_api_key()
+        new_api_key = APIKey.objects.create(
+            user=user,
+            name=payload.name,
+            key_hash=hashed_key,
+            permissions=payload.permissions,
+            expires_at=expiry_refs[payload.expiry],
+            is_active=True,
+        )
+        return Response(
+            {
+                "api_key": plain_key,
+                "expires_at": new_api_key.expires_at
+            },
+            status=201            
+        )
+    except DatabaseError as e:
+        logger.error(f"Database error during api_key creation: {str(e)}")
+        return Response({"detail": "Unexpected error creating api_key"}, status=503)
