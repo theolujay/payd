@@ -7,7 +7,7 @@ import logging
 from django.conf import settings
 from django.http import HttpRequest
 from django.views.decorators.csrf import csrf_exempt
-from ninja import NinjaAPI, Router, Query
+from ninja import Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
@@ -27,15 +27,11 @@ from api.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-api = NinjaAPI(urls_namespace="payd_api", title="PaydAPI", version="0.1.0")
-api.add_exception_handler(Exception, api_exception_handler)
-
-payments_router = Router()
-api.add_router("/payments", payments_router, tags=["Payments"])
+router = Router()
 
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
-@payments_router.post(
+@router.post(
     "/paystack/initiate",
     response={201: PaymentInitiateResponse},
     url_name="paystack-initiate",
@@ -98,7 +94,7 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
         raise IntegrationException("Payment initiation failed")
 
 
-@payments_router.post(
+@router.post(
     "/paystack/webhook",
     response={200: dict, 400: dict, 500: dict},
     url_name="paystack-webhook",
@@ -154,7 +150,7 @@ def paystack_webhook(request: HttpRequest):
         raise InvalidRequestException("Invalid JSON payload")
 
 
-@payments_router.get(
+@router.get(
     "/{reference}/status",
     response={200: TransactionStatusResponse},
     url_name="transaction-status",

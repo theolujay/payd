@@ -2,38 +2,35 @@
 Auth-related endpoints.
 """
 import logging
+from django.db import DatabaseError
 import requests
 from urllib.parse import urlencode
 
-from ninja import NinjaAPI, Router
+from ninja import Router
+from ninja.responses import Response
 
 from api.utils import (
     GoogleOAuthConfig,
     create_tokens_for_user,
     refresh_access_token,
 )
-from api.models import User
+from api.models import User, Wallet
 from api.schemas import (
     GoogleAuthURLResponse,
     TokenResponse,
     RefreshTokenRequest,
 )
 from api.exceptions import (
-    api_exception_handler,
     InvalidRequestException,
     IntegrationException,
 )
 
 logger = logging.getLogger(__name__)
 
-api = NinjaAPI(urls_namespace="payd_api", title="PaydAPI", version="0.1.0")
-api.add_exception_handler(Exception, api_exception_handler)
 
+router = Router()
 
-auth_router = Router()
-api.add_router("/auth", auth_router, tags=["Authentication"])
-
-@auth_router.get(
+@router.get(
     "/google",
     response=GoogleAuthURLResponse,
     url_name="google-login",
@@ -62,7 +59,7 @@ def google_login(request):
     }
 
 
-@auth_router.get(
+@router.get(
     "/google/callback",
     response=TokenResponse,
     url_name="google-callback",
@@ -91,7 +88,7 @@ def google_callback(request):
         )
 
         if token_response.status_code != 200:
-            raise IntegrationException("Invalid authorization code")
+            raise IntegrationException("Invalid authorization code", status_code=401)
 
         token_data = token_response.json()
         access_token = token_data.get("access_token")
@@ -105,8 +102,15 @@ def google_callback(request):
             raise IntegrationException("Failed to fetch user info from provider")
 
         user_data = userinfo_response.json()
+        
+    except ConnectionError:
+        return Response({"detail": "Connection Error"}, status=500)
+    except requests.RequestException as e:
+        logger.error(f"OAuth request error: {str(e)}")
+        return Response({"detail": "Unable to connect to Google OAuth service"}, status=502)
 
-        user, _ = User.objects.update_or_create(
+    try:
+        user, user_created = User.objects.update_or_create(
             google_id=user_data["id"],
             defaults={
                 "email": user_data["email"],
@@ -117,28 +121,33 @@ def google_callback(request):
                 "is_email_verified": True,
             },
         )
+        wallet, wallet_created = Wallet.objects.get_or_create(user=user)
+        if wallet_created and not user_created:
+            logger.warning(f"Late wallet creation for user {user.email}")
+                    
+    except DatabaseError as e:
+        logger.error(f"Database error during user/wallet creation: {str(e)}")
+        return Response({"detail": "Unexpected error creating/updating user"}, status=503)
 
-        tokens = create_tokens_for_user(user)
+    tokens = create_tokens_for_user(user)
+    logger.info(f"User {user.email} authenticated successfully")
 
-        logger.info(f"User {user.email} authenticated successfully")
-
-        return {
+    return Response(
+        {
             "access": tokens["access"],
             "refresh": tokens["refresh"],
             "user": {
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.get_full_name(),
-                "picture": user.picture_url,
+                "picture": user.picture_url
             },
-        }
-
-    except requests.RequestException as e:
-        logger.error(f"OAuth request error: {str(e)}")
-        raise IntegrationException("Provider communication error")
+        },
+        status=201 if user_created else 200
+    )
 
 
-@auth_router.post(
+@router.post(
     "/token/refresh",
     response=dict,
     url_name="token-refresh",

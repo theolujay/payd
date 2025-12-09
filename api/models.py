@@ -57,7 +57,18 @@ class User(AbstractUser):
         """Return the user's full name."""
         return f"{self.first_name} {self.last_name}".strip()
 
-
+class Wallet(models.Model):
+    """Wallet for users"""
+    
+    id = models.UUIDField(
+        default=uuid.uuid4, unique=True, primary_key=True, editable=False
+    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE,)
+    balance = models.FloatField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
+    
+    
 class Transaction(models.Model):
     """Transaction model for storing payment information"""
 

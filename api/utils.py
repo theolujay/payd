@@ -2,6 +2,7 @@ import hmac
 import hashlib
 from typing import Optional
 from datetime import datetime, timedelta
+from django.utils import timezone
 
 import jwt
 from django.conf import settings
@@ -37,8 +38,8 @@ def create_access_token(user: User) -> str:
     payload = {
         "user_id": str(user.id),
         "email": user.email,
-        "exp": datetime.now(datetime.UTC)+ timedelta(hours=1),
-        "iat": datetime.now(datetime.UTC),
+        "exp": timezone.now() + timedelta(hours=1),
+        "iat": timezone.now(),
         "type": "access"
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
@@ -48,8 +49,8 @@ def create_refresh_token(user: User) -> str:
     """Create refresh token (7 days expiry)"""
     payload = {
         "user_id": str(user.id),
-        "exp": datetime.now(datetime.UTC) + timedelta(days=7),
-        "iat": datetime.now(datetime.UTC),
+        "exp": timezone.now() + timedelta(days=7),
+        "iat": timezone.now(),
         "type": "refresh"
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
