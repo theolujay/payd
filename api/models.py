@@ -1,6 +1,6 @@
 import uuid
 from django.db import models
-from django.utils import timezone
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.auth.models import BaseUserManager, AbstractUser
 
 
@@ -37,9 +37,7 @@ class CustomUserManager(BaseUserManager):
 class User(AbstractUser):
     """Custom user model"""
 
-    id = models.UUIDField(
-        default=uuid.uuid4, unique=True, primary_key=True, editable=False
-    )
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
     email = models.EmailField(unique=True)
     is_email_verified = models.BooleanField(default=False)
     first_name = models.CharField(max_length=30, blank=False)
@@ -57,54 +55,91 @@ class User(AbstractUser):
         """Return the user's full name."""
         return f"{self.first_name} {self.last_name}".strip()
 
+
 class Wallet(models.Model):
     """Wallet for users"""
-    
+
     id = models.UUIDField(
         default=uuid.uuid4, unique=True, primary_key=True, editable=False
     )
-    user = models.OneToOneField(User, on_delete=models.CASCADE,)
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    wallet_number = models.CharField(max_length=20, unique=True)
     balance = models.FloatField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
-    
-    
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class Transaction(models.Model):
-    """Transaction model for storing payment information"""
+    """Transaction model for storing wallet transaction information"""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
 
-    id = models.UUIDField(
-        default=uuid.uuid4, unique=True, primary_key=True, editable=False
-    )
-    reference = models.CharField(max_length=255, unique=True, db_index=True)
-    user = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="transactions",
-    )
+    class Type(models.TextChoices):
+        DEPOSIT = "deposit", "Deposit"
+        TRANSFER_IN = "transfer_in", "Transfer In"
+        TRANSFER_OUT = "transfer_out", "Transfer Out"
+
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
+    wallet = models.ForeignKey("Wallet", on_delete=models.PROTECT, null=True)
+    type = models.CharField(choices=Type.choices, db_index=True)
     amount = models.BigIntegerField(help_text="Amount in smallest currency unit (Kobo)")
-    currency = models.CharField(max_length=3, default="NGN")
+    reference = models.CharField(max_length=255, unique=True, db_index=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
     )
+    currency = models.CharField(max_length=3, default="NGN")
     authorization_url = models.URLField(blank=True)
-    paid_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
+            models.Index(fields=["wallet"]),
             models.Index(fields=["reference"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["type"]),
             models.Index(fields=["created_at"]),
         ]
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Transaction {self.reference} - {self.status}"
+        return f"Transaction {self.reference} - {self.type} - {self.status}"
+
+
+class APIKey(models.Model):
+
+    class Permission(models.TextChoices):
+        READ_WALLET = "read_wallet", "Read Wallet"
+        CREATE_TRANSACTION = "create_transaction", "Create Transaction"
+        READ_TRANSACTION = "read_transaction", "Read Transaction"
+        INITIATE_TRANSFER = "initiate_transfer", "Initiate Transfer"
+        MANAGE_API_KEYS = "manage_api_keys", "Manage API Keys"
+
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_keys")
+    name = models.CharField(
+        max_length=30, blank=True, help_text="Friendly name for this API key"
+    )
+    key_hash = models.CharField(unique=True, max_length=128)
+    permissions = ArrayField(
+        models.CharField(max_length=20, choices=Permission.choices),
+        default=list,
+        help_text="List of permissions this API key grants",
+    )
+    expires_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "api_keys"
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name or 'Unnamed'} - {self.user.email}"
