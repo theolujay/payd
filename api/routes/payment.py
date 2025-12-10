@@ -40,7 +40,7 @@ paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
     """
     Make wallet deposit with Paystack by  initiatiaing payment
-    Requires JWT authentication OR API key with 'read' permission.
+    Requires JWT authentication OR API key with 'deposit' permission.
     Use:
         Authorization: Bearer <your_access_token> (for JWT auth)
         OR
@@ -183,10 +183,10 @@ def paystack_webhook(request: HttpRequest):
 
 
 @router.get(
-    "/{reference}/status",
+    "transaction/{reference}/status",
     response={200: TransactionStatusResponse},
     url_name="transaction-status",
-    auth=JWTAPIKeyAuth(),
+    auth=JWTAPIKeyAuth(dual=True, permissions=["read"]),
 )
 def get_transaction_status(
     request,
@@ -195,51 +195,79 @@ def get_transaction_status(
 ):
     """
     Get transaction status - requires JWT authentication.
-    Use: Authorization: Bearer <your_access_token>
+    Requires JWT authentication OR API key with 'read' permission.
+    Use:
+        Authorization: Bearer <your_access_token> (for JWT auth)
+        OR
+        X-API-Key: <api_key> (for API key auth)    
     """
     if not reference or len(reference) < 5:
-        raise InvalidRequestException("Invalid transaction reference format")
+        return Response(
+            {
+                "detail": "Invalid transaction reference format"
+            },
+            status=400
+        )
 
     try:
         transaction = Transaction.objects.get(reference=reference)
     except Transaction.DoesNotExist:
-        raise NotFoundException("Transaction not found")
+        return Response(
+            {
+                "detail": "Transaction not found"
+            },
+            status=404
+        )
 
-    # Verify user owns this transaction
     user = request.auth
     if transaction.user and transaction.user.id != user.id:
-        raise NotFoundException("Transaction not found")
+        return Response(
+            {
+                "detail": "Transaction not found"
+            },
+            status=404
+        )
 
     if refresh:
         try:
             data, _ = paystack_client.transactions.verify(reference=reference)
-            paystack_status = data.get("status")
+            transaction_status = data.get("status")
+            transaction_amount = data.get("amount")
+            
 
-            if paystack_status == "success":
-                transaction.status = Transaction.Status.SUCCESS
-                transaction.paid_at = data.get("paid_at")
-            elif paystack_status == "failed":
-                transaction.status = Transaction.Status.FAILED
-            else:
-                transaction.status = Transaction.Status.PENDING
-
-            transaction.save()
-            logger.info(f"Transaction {reference} refreshed from Paystack")
+            logger.info(f"Transaction {reference} fetched from Paystack")
+            return Response(
+                {
+                    "reference": reference,
+                    "status": transaction_status,
+                    "amount": transaction_amount
+                }
+            )
 
         except APIError as e:
             logger.warning(
-                f"Failed to refresh transaction {reference} from Paystack: {e.message}"
+                f"Failed to get status for transaction {reference} from Paystack: {e.message}"
+            )
+            return Response(
+                {
+                    "detail": "Failed to get transaction status"
+                },
+                status=503
             )
         except Exception as e:
             logger.error(f"Error refreshing transaction {reference}: {str(e)}")
+            return Response(
+                {
+                    "detail": "Failed to get transaction status"
+                },
+                status=503
+            )
 
     return Response(
         {
             "reference": transaction.reference,
             "status": transaction.status,
             "amount": transaction.amount,
-            "paid_at": transaction.paid_at,
-            "currency": transaction.currency,
         },
         status=200,
     )
