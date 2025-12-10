@@ -184,7 +184,7 @@ def paystack_webhook(request: HttpRequest):
 
 @router.get(
     "transaction/{reference}/status",
-    response={200: TransactionStatusResponse},
+    response=dict,
     url_name="transaction-status",
     auth=JWTAPIKeyAuth(dual=True, permissions=["read"]),
 )
@@ -271,3 +271,30 @@ def get_transaction_status(
         },
         status=200,
     )
+    
+@router.get(
+    "wallet/balance",
+    response=dict,
+    url_name="wallet-balance",
+    auth=JWTAPIKeyAuth(dual=True, permissions=["read"])
+)
+def get_wallet_balance(request):
+    user = request.auth
+    try:
+        logger.info(f"Wallet balance request by usr: {user.email}")
+        user_wallet = Wallet.objects.get(user=user)
+        return Response(
+            {
+                "balance": user_wallet.balance
+            },
+            status=200
+        )
+    except Wallet.DoesNotExist:
+        logger.warning(f"Wallet balance request by usr: {user.email}")
+        return Response(
+            {
+                "detail": "Wallet does not exist"
+            },
+            status=404
+        )
+    
