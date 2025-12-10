@@ -347,7 +347,6 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
                 wallet=user_wallet,
                 type=Transaction.Type.TRANSFER_OUT,
                 amount=amount,
-                reference=secrets.token_hex(8),
                 status=Transaction.Status.SUCCESS
             )
             
@@ -355,15 +354,14 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
                 wallet=recipient_wallet,
                 type=Transaction.Type.TRANSFER_IN,
                 amount=amount,
-                reference=secrets.token_hex(8),
                 status=Transaction.Status.SUCCESS,
             )
             
             transfer_out.metadata = {
-                "transfer_to_reference": transfer_in.reference
+                "transfer_to_id": transfer_in.id
             }
             transfer_in.metadata = {
-                "transfer_from_reference": transfer_out.reference
+                "transfer_from_id": transfer_out.id
             }
             transfer_out.save()
             transfer_in.save()

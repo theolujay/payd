@@ -1,6 +1,6 @@
 from ninja import NinjaAPI
 from api.exceptions import api_exception_handler
-from . import auth, transactions, wallet
+from . import auth, transactions
 
 api = NinjaAPI(urls_namespace="payd_api", title="PaydAPI", version="0.1.0")
 api.add_exception_handler(Exception, api_exception_handler)

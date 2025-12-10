@@ -86,7 +86,7 @@ class Transaction(models.Model):
     wallet = models.ForeignKey("Wallet", on_delete=models.PROTECT, null=True)
     type = models.CharField(choices=Type.choices, db_index=True)
     amount = models.BigIntegerField(help_text="Amount in smallest currency unit (Kobo)")
-    reference = models.CharField(max_length=255, unique=True, db_index=True)
+    reference = models.CharField(max_length=255, unique=True, db_index=True, null=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
     )
