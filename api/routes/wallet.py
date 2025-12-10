@@ -396,3 +396,37 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
             status=500
         )
         
+@router.get(
+    "/transactions",
+    response=dict,
+    url_name="wallet-transactions",
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
+)
+def get_wallet_history(request):
+    user = request.user
+    transactions = Transaction.objects.filter(user=user).order_by("-created_at")
+    all_tx_list = []
+    try:
+        for tx in transactions:
+            tx_data = {
+                "id": tx.id,
+                "type": tx.type,
+                "amount": tx.amount,
+                "status": tx.status,
+                "reference": tx.reference,
+                "created_at": tx.created_at
+            }
+            all_tx_list.append(tx_data)
+        return Response(
+            {
+                "transactions": all_tx_list
+            },
+            status=200
+        )
+    except DatabaseError as e:
+        logger.error(f"Database error getting transactions: {e}")
+        return Response(
+            {"detail": "Transactions retrieval failed"},
+            status=500
+        )
+   
