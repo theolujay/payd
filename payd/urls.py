@@ -5,12 +5,10 @@ URL configuration for payd project.
 from django.contrib import admin
 from django.urls import path
 from django.views.generic.base import RedirectView
-
-from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
-from django.http import HttpResponse
+from django.views.static import serve
 
 from api.routes import api
 
@@ -22,7 +20,11 @@ def root(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", api.urls),
-    path("favicon.ico", lambda r: HttpResponse(status=204)),
+    path(
+        "favicon.ico",
+        serve,
+        {"path": "favicon.ico", "document_root": settings.BASE_DIR},
+    ),
     path("", RedirectView.as_view(url="/api/", permanent=False)),
     path("docs/", RedirectView.as_view(url="/api/docs", permanent=False)),
 ]
