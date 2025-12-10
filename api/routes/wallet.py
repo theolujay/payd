@@ -33,7 +33,7 @@ router = Router()
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
 @router.post(
-    "/wallet/deposit",
+    "/deposit",
     response={201: PaymentInitiateResponse},
     url_name="wallet-deposit",
     auth=JWTAPIKeyAuth(dual_auth=True, permissions=["deposit"]),
@@ -184,7 +184,7 @@ def paystack_webhook(request: HttpRequest):
 
 
 @router.get(
-    "transaction/{reference}/status",
+    "/transaction/{reference}/status",
     response=dict,
     url_name="transaction-status",
     auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
@@ -274,7 +274,7 @@ def get_transaction_status(
     )
     
 @router.get(
-    "wallet/balance",
+    "/balance",
     response=dict,
     url_name="wallet-balance",
     auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
@@ -301,7 +301,7 @@ def get_wallet_balance(request):
     
 
 @router.post(
-    "wallet/transfer",
+    "/transfer",
     response=dict,
     url_name="wallet-transfer",
     auth=JWTAPIKeyAuth(dual_auth=True, permissions=["transfer"])
