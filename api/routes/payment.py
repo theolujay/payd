@@ -2,9 +2,12 @@
 Payment-related endpoints
 """
 import json
+import secrets
 import logging
 
 from django.conf import settings
+from django.db import DatabaseError, transaction
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpRequest
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -16,7 +19,7 @@ from api.utils import JWTAPIKeyAuth, verify_paystack_signature
 from api.models import Transaction, Wallet
 from api.schemas import (
     PaymentInitiateResponse,
-    TransactionStatusResponse,
+    WalletToWalletTransferRequest,
     WalletDepositRequest,
 )
 from api.exceptions import (
@@ -186,7 +189,7 @@ def paystack_webhook(request: HttpRequest):
     "transaction/{reference}/status",
     response=dict,
     url_name="transaction-status",
-    auth=JWTAPIKeyAuth(dual=True, permissions=["read"]),
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
 )
 def get_transaction_status(
     request,
@@ -276,7 +279,7 @@ def get_transaction_status(
     "wallet/balance",
     response=dict,
     url_name="wallet-balance",
-    auth=JWTAPIKeyAuth(dual=True, permissions=["read"])
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
 )
 def get_wallet_balance(request):
     user = request.auth
@@ -298,3 +301,105 @@ def get_wallet_balance(request):
             status=404
         )
     
+
+@router.post(
+    "wallet/transfer",
+    response=dict,
+    url_name="wallet-transfer",
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["transfer"])
+)
+def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
+    user = request.auth
+    amount = payload.amount
+    recipient_wallet_id = payload.wallet_number
+
+    if amount <= 0:
+        return Response(
+            {"detail": "Amount must be greater than 0"},
+            status=400
+        )
+    
+    try:
+        with transaction.atomic():
+            user_wallet = Wallet.objects.select_for_update().get(user=user) # this is to lock rows to prevent race conditions
+            
+            if str(user_wallet.id) == str(recipient_wallet_id):
+                return Response(
+                    {"detail": "Cannot transfer to your own wallet"},
+                    status=400
+                )
+            try:
+                recipient_wallet = Wallet.objects.select_for_update().get( # same idea to prevent race conditions
+                    id=recipient_wallet_id
+                )
+            except ObjectDoesNotExist:
+                return Response(
+                    {"detail": "Recipient wallet not found"},
+                    status=404
+                )
+        
+            if user_wallet.balance < amount:
+                return Response(
+                    {"detail": "Insufficient balance"},
+                    status=400
+                )
+
+            # create transaction records and link them
+            transfer_out = Transaction.objects.create(
+                wallet=user_wallet,
+                type=Transaction.Type.TRANSFER_OUT,
+                amount=amount,
+                reference=secrets.token_hex(8),
+                status=Transaction.Status.SUCCESS
+            )
+            
+            transfer_in = Transaction.objects.create(
+                wallet=recipient_wallet,
+                type=Transaction.Type.TRANSFER_IN,
+                amount=amount,
+                reference=secrets.token_hex(8),
+                status=Transaction.Status.SUCCESS,
+            )
+            
+            transfer_out.metadata = {
+                "transfer_to_reference": transfer_in.reference
+            }
+            transfer_in.metadata = {
+                "transfer_from_reference": transfer_out.reference
+            }
+            transfer_out.save()
+            transfer_in.save()
+            
+            # update balances
+            user_wallet.balance -= amount
+            recipient_wallet.balance += amount
+            user_wallet.updated_at = timezone.now()
+            recipient_wallet.updated_at = timezone.now()
+            user_wallet.save()
+            recipient_wallet.save()
+        
+        # transaction committed successfully
+        return Response(
+            {
+                "status": "success",
+                "message": "Transfer completed"
+            },
+            status=200
+        )
+        
+    except DatabaseError as e:
+        logger.error(f"Database error during transfer: {e}")
+        return Response(
+            {"detail": "Transfer failed due to database error"},
+            status=500
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during transfer: {e}")
+        return Response(
+            {"detail": "An unexpected error occurred"},
+            status=500
+        )
+        
+        
+        
+        

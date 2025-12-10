@@ -43,6 +43,11 @@ class WalletDepositRequest(BaseModel):
             raise ValueError("Amount must be at least 5000 (50 naira)")
         return v
 
+class WalletToWalletTransferRequest(BaseModel):
+    """Schema for wallet-to-wallet transfers"""
+    
+    wallet_number: UUID
+    amount: int
 
 class PaymentInitiateResponse(BaseModel):
     """Schema for payment initiation response"""
