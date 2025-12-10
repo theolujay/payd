@@ -115,5 +115,12 @@ class RolloverAPIKeyRequest(BaseModel):
             raise ValueError("Allowed expiry format: '1H', '1D', '1M', '1Y'")
         return v
 
-
+class KeysListSchema(BaseModel):
+    """Schema for listing active API keys"""
     
+    id: UUID
+    name: str
+    is_active: bool
+    permissions: List[str]
+    created_at: datetime
+    expires_at: datetime

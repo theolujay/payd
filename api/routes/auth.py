@@ -2,6 +2,7 @@
 Auth-related endpoints.
 """
 import logging
+from typing import List
 from uuid import UUID
 from django.db import DatabaseError
 from django.utils import timezone
@@ -10,6 +11,7 @@ import requests
 from urllib.parse import urlencode
 
 from ninja import Router
+from ninja.pagination import paginate
 from ninja.responses import Response
 
 from api.utils import (
@@ -22,6 +24,7 @@ from api.utils import (
 from api.models import User, Wallet, APIKey
 from api.schemas import (
     GoogleAuthURLResponse,
+    KeysListSchema,
     RolloverAPIKeyRequest,
     TokenResponse,
     RefreshTokenRequest,
@@ -316,3 +319,36 @@ def revoke_api_key(request, key_id: UUID):
             },
             status=404
         )
+
+   
+@router.get(
+    "/keys",
+    response=List[KeysListSchema],
+    url_name="keys-list",
+    auth=JWTAPIKeyAuth()    
+)
+@paginate
+def list_api_keys(request):
+    user = request.user
+    api_key_ids = APIKey.objects.filter(user=user)
+    key_ids_list = []
+    try:
+        for key in api_key_ids:
+            key_data = {
+                "id": key.id,
+                "name": key.name,
+                "is_active": key.is_active,
+                "permissions": key.permissions,
+                "created_at": key.created_at,
+                "expires_at": key.expires_at
+            }
+            key_ids_list.append(key_data)
+        return Response(
+            {
+                "api_keys": key_ids_list
+            },
+            status=200
+        )
+    except DatabaseError as e:
+        logger.error(f"Database error getting api key for user {user.email}: {str(e)}")
+        return Response({"detail": "Unexpected error getting api keys"}, status=503)
