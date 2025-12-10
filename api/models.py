@@ -64,7 +64,7 @@ class Wallet(models.Model):
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     wallet_number = models.CharField(max_length=20, unique=True)
-    balance = models.FloatField(default=0)
+    balance = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -109,7 +109,7 @@ class TestGoogleAuth(TestCase):
         user_wallet = Wallet.objects.get(user=user)
         self.assertEqual(user_wallet.user_id, user.id)
         self.assertEqual(type(user_wallet.id), uuid.UUID)
-        self.assertEqual(type(user_wallet.balance), float)
+        self.assertEqual(type(user_wallet.balance), int)
         self.assertEqual(user_wallet.balance, 0)
         
 
