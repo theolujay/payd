@@ -48,7 +48,16 @@ class WalletToWalletTransferRequest(BaseModel):
     
     wallet_number: UUID
     amount: int
+    
+class TransactionHistorySchema(BaseModel):
+    """Schema for transaction history"""
 
+    id: UUID
+    type: str
+    amount: int
+    status: str
+    reference: str
+    created_at: datetime
 class PaymentInitiateResponse(BaseModel):
     """Schema for payment initiation response"""
 

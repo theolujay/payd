@@ -4,6 +4,7 @@ Payment-related endpoints
 import json
 import secrets
 import logging
+from typing import List
 
 from django.conf import settings
 from django.db import DatabaseError, transaction
@@ -13,6 +14,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from ninja import Router, Query
 from ninja.responses import Response
+from ninja.pagination import paginate
 from paystack import PaystackClient, APIError
 
 from api.utils import JWTAPIKeyAuth, verify_paystack_signature
@@ -21,6 +23,7 @@ from api.schemas import (
     PaymentInitiateResponse,
     WalletToWalletTransferRequest,
     WalletDepositRequest,
+    TransactionHistorySchema,
 )
 from api.exceptions import (
     InvalidRequestException,
@@ -398,10 +401,11 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
         
 @router.get(
     "/transactions",
-    response=dict,
+    response=List[TransactionHistorySchema],
     url_name="wallet-transactions",
     auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
 )
+@paginate
 def get_wallet_history(request):
     user = request.user
     transactions = Transaction.objects.filter(user=user).order_by("-created_at")
