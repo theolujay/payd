@@ -14,7 +14,7 @@ from django.views.generic import RedirectView
 from api.routes import api
 
 
-@api.get("/", summary="API Root / Health Check")
+@api.get("/", summary="API Root / Health Check", tags=["Home"])
 def root(request):
     return {"message": "Welcome to Payd API!"}
 
