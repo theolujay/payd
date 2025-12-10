@@ -1,9 +1,11 @@
+import decimal
 import json
 import hmac
 import uuid
 import hashlib
 from urllib.parse import urlparse, parse_qs
 from unittest.mock import patch, Mock
+from datetime import timedelta
 
 from django.utils import timezone
 from django.test import TestCase
@@ -11,7 +13,8 @@ from django.db import IntegrityError
 from django.urls import reverse
 from paystack import APIError
 
-from api.models import User, Wallet, Transaction
+from api.models import User, Wallet, Transaction, APIKey
+from api.utils import create_tokens_for_user
 
 
 class TestGoogleAuth(TestCase):
@@ -120,7 +123,7 @@ class TestGoogleAuth(TestCase):
         user_wallet = Wallet.objects.get(user=user)
         self.assertEqual(user_wallet.user_id, user.id)
         self.assertEqual(type(user_wallet.id), uuid.UUID)
-        self.assertEqual(type(user_wallet.balance), int)
+        self.assertEqual(type(user_wallet.balance), decimal.Decimal)
         self.assertEqual(user_wallet.balance, 0)
 
     @patch("api.routes.auth.requests.get")
@@ -190,7 +193,6 @@ class TestTransactionModel(TestCase):
         """Test that a transaction can be created with all required fields"""
         transaction = Transaction.objects.create(
             reference="TEST_REF_001",
-            user=self.user,
             amount=500000,  # 5000 NGN in Kobo
             currency="NGN",
             status=Transaction.Status.PENDING,
@@ -198,7 +200,6 @@ class TestTransactionModel(TestCase):
         )
 
         self.assertEqual(transaction.reference, "TEST_REF_001")
-        self.assertEqual(transaction.user, self.user)
         self.assertEqual(transaction.amount, 500000)
         self.assertEqual(transaction.currency, "NGN")
         self.assertEqual(transaction.status, Transaction.Status.PENDING)
@@ -848,3 +849,118 @@ class TestTransactionModel(TestCase):
 #         data = response.json()
 #         self.assertEqual(data["status"], "success")
 #         self.assertIsNotNone(data["paid_at"])
+
+
+class TestWalletToWalletTransfer(TestCase):
+    def setUp(self):
+        """Create test users and wallets"""
+        self.sender_user = User.objects.create_user(
+            email="sender@example.com",
+            first_name="Sender",
+            last_name="User",
+            password="password",
+        )
+        self.recipient_user = User.objects.create_user(
+            email="recipient@example.com",
+            first_name="Recipient",
+            last_name="User",
+            password="password",
+        )
+        self.sender_wallet = Wallet.objects.create(
+            user=self.sender_user, balance=10000
+        )
+        self.recipient_wallet = Wallet.objects.create(
+            user=self.recipient_user, balance=5000
+        )
+
+    def test_wallet_to_wallet_transfer_success(self):
+        """Test successful wallet to wallet transfer"""
+        tokens = create_tokens_for_user(self.sender_user)
+        access_token = tokens["access"]
+        auth_headers = {"HTTP_AUTHORIZATION": f"Bearer {access_token}"}
+
+        transfer_url = reverse("payd_api:wallet-transfer")
+        transfer_amount = 2000
+        data = {
+            "wallet_number": self.recipient_wallet.wallet_number,
+            "amount": transfer_amount,
+        }
+
+        response = self.client.post(
+            transfer_url,
+            data=json.dumps(data),
+            content_type="application/json",
+            **auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
+        self.assertEqual(response.json()["message"], "Transfer completed")
+
+        self.sender_wallet.refresh_from_db()
+        self.recipient_wallet.refresh_from_db()
+
+        self.assertEqual(self.sender_wallet.balance, 8000)
+        self.assertEqual(self.recipient_wallet.balance, 7000)
+
+        # Check transactions
+        sender_transaction = Transaction.objects.get(
+            wallet=self.sender_wallet, type=Transaction.Type.TRANSFER_OUT
+        )
+        recipient_transaction = Transaction.objects.get(
+            wallet=self.recipient_wallet, type=Transaction.Type.TRANSFER_IN
+        )
+
+        self.assertEqual(sender_transaction.amount, transfer_amount)
+        self.assertEqual(recipient_transaction.amount, transfer_amount)
+        self.assertEqual(
+            sender_transaction.metadata["transfer_to_id"],
+            str(recipient_transaction.id),
+        )
+        self.assertEqual(
+            recipient_transaction.metadata["transfer_from_id"],
+            str(sender_transaction.id),
+        )
+
+
+class TestAPIKeys(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            password="password",
+        )
+        self.tokens = create_tokens_for_user(self.user)
+        self.access_token = self.tokens["access"]
+        self.auth_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.access_token}"}
+
+    def test_rollover_non_expired_key(self):
+        """Test that a non-expired key cannot be rolled over"""
+        # Create a non-expired API key
+        api_key = APIKey.objects.create(
+            user=self.user,
+            name="Test Key",
+            key_hash="some_hash",
+            lookup_hint="some_hint",
+            expires_at=timezone.now() + timedelta(days=1),
+            is_active=True,
+        )
+
+        rollover_url = reverse("payd_api:keys-rollover")
+        data = {
+            "expired_key_id": str(api_key.id),
+            "expiry": "1M",
+        }
+
+        response = self.client.post(
+            rollover_url,
+            data=json.dumps(data),
+            content_type="application/json",
+            **self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"], "Key is not expired. Cannot rollover."
+        )

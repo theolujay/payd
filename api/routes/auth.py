@@ -234,7 +234,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
         if old_api_key is None:
             return Response({"detail": "API key not found"}, 404)
         if not old_api_key.expires_at < timezone.now():
-            return Response({"Key is not expired. Cannot rollover."}, status=403)
+            return Response({"detail": "Key is not expired. Cannot rollover."}, status=403)
         api_keys = APIKey.objects.filter(user=user, is_active=True)
         num_of_api_keys = api_keys.count()
         if num_of_api_keys >= 5:

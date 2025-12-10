@@ -140,7 +140,7 @@ def get_transaction_status(
         return Response({"detail": "Transaction not found"}, status=404)
 
     user = request.auth
-    if transaction.user and transaction.user.id != user.id:
+    if transaction.wallet and transaction.wallet.user.id != user.id:
         return Response({"detail": "Transaction not found"}, status=404)
 
     if refresh:
@@ -203,7 +203,7 @@ def get_wallet_balance(request):
 def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
     user = request.auth
     amount = payload.amount
-    recipient_wallet_id = payload.wallet_number
+    recipient_wallet_number = payload.wallet_number
 
     if amount <= 0:
         return Response({"detail": "Amount must be greater than 0"}, status=400)
@@ -214,13 +214,13 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
                 user=user
             )  # this is to lock rows to prevent race conditions
 
-            if str(user_wallet.id) == str(recipient_wallet_id):
+            if str(user_wallet.wallet_number) == str(recipient_wallet_number):
                 return Response(
                     {"detail": "Cannot transfer to your own wallet"}, status=400
                 )
             try:
                 recipient_wallet = Wallet.objects.select_for_update().get(  # same idea to prevent race conditions
-                    id=recipient_wallet_id
+                    wallet_number=recipient_wallet_number
                 )
             except ObjectDoesNotExist:
                 return Response({"detail": "Recipient wallet not found"}, status=404)
@@ -243,8 +243,8 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
                 status=Transaction.Status.SUCCESS,
             )
 
-            transfer_out.metadata = {"transfer_to_id": transfer_in.id}
-            transfer_in.metadata = {"transfer_from_id": transfer_out.id}
+            transfer_out.metadata = {"transfer_to_id": str(transfer_in.id)}
+            transfer_in.metadata = {"transfer_from_id": str(transfer_out.id)}
             transfer_out.save()
             transfer_in.save()
 
@@ -278,20 +278,8 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
 @paginate
 def get_wallet_history(request):
     user = request.auth
-    transactions = Transaction.objects.filter(user=user).order_by("-created_at")
-    all_tx_list = []
-    try:
-        for tx in transactions:
-            tx_data = {
-                "id": tx.id,
-                "type": tx.type,
-                "amount": tx.amount,
-                "status": tx.status,
-                "reference": tx.reference,
-                "created_at": tx.created_at,
-            }
-            all_tx_list.append(tx_data)
-        return Response({"transactions": all_tx_list}, status=200)
-    except DatabaseError as e:
-        logger.error(f"Database error getting transactions: {e}")
-        return Response({"detail": "Transactions retrieval failed"}, status=500)
+    transactions = Transaction.objects.filter(
+        wallet=user.wallet
+    ).order_by("-created_at")
+
+    return transactions

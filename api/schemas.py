@@ -1,5 +1,5 @@
 from uuid import UUID
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from ninja import ModelSchema
@@ -8,7 +8,7 @@ from api.models import APIKey, User
 
 class UserSchema(ModelSchema):
     """Schema for user model"""
-
+    wallet_number: Optional[int] = None
     class Meta:
         model = User
         fields = [
@@ -19,7 +19,11 @@ class UserSchema(ModelSchema):
             "phone",
             "picture_url",
         ]
-
+        
+    @staticmethod
+    def resolve_wallet_number(obj):
+        """Get wallet number from related wallet"""
+        return obj.wallet.wallet_number if hasattr(obj, 'wallet') and obj.wallet else None
 
 class GoogleAuthURLResponse(BaseModel):
     """Response with Google OAuth URL"""
@@ -68,7 +72,7 @@ class WalletDepositRequest(BaseModel):
 class WalletToWalletTransferRequest(BaseModel):
     """Schema for wallet-to-wallet transfers"""
 
-    wallet_number: UUID
+    wallet_number: int
     amount: int
 
 
