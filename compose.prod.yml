@@ -40,6 +40,8 @@ services:
       - "traefik.http.routers.payd.tls.certresolver=le"
       - "traefik.http.routers.payd.tls=true"
       - "traefik.http.services.payd.loadbalancer.server.port=8000"
+    environment:
+      - DB_HOST=db
 
 networks:
   payd:
@@ -47,4 +49,7 @@ networks:
 
 volumes:
   payd_db:
+  payd_venv:
+  payd_media:
+  payd_static:
   payd_letsencrypt:
