@@ -1,6 +1,7 @@
 """
 Payment-related endpoints
 """
+
 import json
 import logging
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
+
 
 @router.post(
     "/paystack",

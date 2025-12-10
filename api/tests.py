@@ -21,11 +21,18 @@ class TestGoogleAuth(TestCase):
         response = self.client.get(login_url)
         response_auth_url = response.json()["auth_url"]
         self.assertEqual(response.status_code, 200)
-        self.assertStartsWith(response_auth_url, "https://accounts.google.com/o/oauth2/v2/auth")
-        for param in ["client_id", "redirect_uri", "scope", "response_type", "access_type"]:
+        self.assertStartsWith(
+            response_auth_url, "https://accounts.google.com/o/oauth2/v2/auth"
+        )
+        for param in [
+            "client_id",
+            "redirect_uri",
+            "scope",
+            "response_type",
+            "access_type",
+        ]:
             self.assertIn(param, response_auth_url)
 
-        
     @patch("api.routes.auth.GoogleOAuthConfig.CLIENT_ID", None)
     def test_missing_client_id(self):
         """Test case when CLIENT_ID is missing"""
@@ -50,7 +57,9 @@ class TestGoogleAuth(TestCase):
         response = self.client.get(callback_url)
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"].lower(), "missing authorization code")
+        self.assertEqual(
+            response.json()["detail"].lower(), "missing authorization code"
+        )
 
     @patch("api.routes.auth.requests.post")
     def test_callback_invalid_code(self, mock_post):
@@ -62,7 +71,9 @@ class TestGoogleAuth(TestCase):
         response = self.client.get(callback_url, {"code": "invalid_code"})
 
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"].lower(), "invalid authorization code")
+        self.assertEqual(
+            response.json()["detail"].lower(), "invalid authorization code"
+        )
 
     @patch("api.routes.auth.requests.get")
     @patch("api.routes.auth.requests.post")
@@ -104,14 +115,13 @@ class TestGoogleAuth(TestCase):
         self.assertEqual(user.first_name, "Test")
         self.assertEqual(user.last_name, "User")
         self.assertEqual(user.picture_url, "https://example.com/photo.jpg")
-        
+
         # verify wallet was created for the user and has zero balance
         user_wallet = Wallet.objects.get(user=user)
         self.assertEqual(user_wallet.user_id, user.id)
         self.assertEqual(type(user_wallet.id), uuid.UUID)
         self.assertEqual(type(user_wallet.balance), int)
         self.assertEqual(user_wallet.balance, 0)
-        
 
     @patch("api.routes.auth.requests.get")
     @patch("api.routes.auth.requests.post")
@@ -195,6 +205,7 @@ class TestTransactionModel(TestCase):
         self.assertIsNotNone(transaction.id)
         self.assertIsNotNone(transaction.created_at)
         self.assertIsNotNone(transaction.updated_at)
+
 
 #     def test_transaction_reference_unique(self):
 #         """Test that reference field has unique constraint"""

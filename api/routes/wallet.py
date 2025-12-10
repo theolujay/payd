@@ -1,6 +1,7 @@
 """
 Payment-related endpoints
 """
+
 import json
 import secrets
 import logging
@@ -35,6 +36,7 @@ router = Router()
 
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
+
 @router.post(
     "/deposit",
     response={201: PaymentInitiateResponse},
@@ -48,7 +50,7 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
     Use:
         Authorization: Bearer <your_access_token> (for JWT auth)
         OR
-        X-API-Key: <api_key> (for API key auth)        
+        X-API-Key: <api_key> (for API key auth)
     """
     user = request.auth
 
@@ -58,7 +60,7 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
             amount=payload.amount,
             wallet=user_wallet,
             status=Transaction.Status.PENDING,
-            type=Transaction.Type.DEPOSIT
+            type=Transaction.Type.DEPOSIT,
         ).first()
 
         if existing_transaction:
@@ -72,7 +74,7 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
                 },
                 status=201,
             )
-            
+
         payment_data, _ = paystack_client.transactions.initialize(
             amount=payload.amount,
             email=user.email,
@@ -80,15 +82,10 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
         )
     except Wallet.DoesNotExist:
         logger.info(f"Wallet not found for user: {user.email}")
-        return Response(
-            {
-                "detail": "Wallet not found for user"
-            },
-            status=503
-        )
+        return Response({"detail": "Wallet not found for user"}, status=503)
     except ValueError as e:
         raise InvalidRequestException(str(e))
-    
+
     try:
         transaction = Transaction.objects.create(
             wallet=user_wallet,
@@ -113,15 +110,11 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
         transaction.type = Transaction.Type.FAILED
         transaction.updated_at = timezone.now()
         transaction.save()
-        
+
         logger.error(f"Paystack API error: {e.message}")
-        
-        return Response(
-            {
-                "detail": "Payment initiation failed"
-            },
-            402
-        )
+
+        return Response({"detail": "Payment initiation failed"}, 402)
+
 
 @router.get(
     "/transaction/{reference}/status",
@@ -140,48 +133,32 @@ def get_transaction_status(
     Use:
         Authorization: Bearer <your_access_token> (for JWT auth)
         OR
-        X-API-Key: <api_key> (for API key auth)    
+        X-API-Key: <api_key> (for API key auth)
     """
     if not reference or len(reference) < 5:
-        return Response(
-            {
-                "detail": "Invalid transaction reference format"
-            },
-            status=400
-        )
+        return Response({"detail": "Invalid transaction reference format"}, status=400)
 
     try:
         transaction = Transaction.objects.get(reference=reference)
     except Transaction.DoesNotExist:
-        return Response(
-            {
-                "detail": "Transaction not found"
-            },
-            status=404
-        )
+        return Response({"detail": "Transaction not found"}, status=404)
 
     user = request.auth
     if transaction.user and transaction.user.id != user.id:
-        return Response(
-            {
-                "detail": "Transaction not found"
-            },
-            status=404
-        )
+        return Response({"detail": "Transaction not found"}, status=404)
 
     if refresh:
         try:
             data, _ = paystack_client.transactions.verify(reference=reference)
             transaction_status = data.get("status")
             transaction_amount = data.get("amount")
-            
 
             logger.info(f"Transaction {reference} fetched from Paystack")
             return Response(
                 {
                     "reference": reference,
                     "status": transaction_status,
-                    "amount": transaction_amount
+                    "amount": transaction_amount,
                 }
             )
 
@@ -189,20 +166,10 @@ def get_transaction_status(
             logger.warning(
                 f"Failed to get status for transaction {reference} from Paystack: {e.message}"
             )
-            return Response(
-                {
-                    "detail": "Failed to get transaction status"
-                },
-                status=503
-            )
+            return Response({"detail": "Failed to get transaction status"}, status=503)
         except Exception as e:
             logger.error(f"Error refreshing transaction {reference}: {str(e)}")
-            return Response(
-                {
-                    "detail": "Failed to get transaction status"
-                },
-                status=503
-            )
+            return Response({"detail": "Failed to get transaction status"}, status=503)
 
     return Response(
         {
@@ -212,39 +179,30 @@ def get_transaction_status(
         },
         status=200,
     )
-    
+
+
 @router.get(
     "/balance",
     response=dict,
     url_name="wallet-balance",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
 )
 def get_wallet_balance(request):
     user = request.auth
     try:
         logger.info(f"Wallet balance request by usr: {user.email}")
         user_wallet = Wallet.objects.get(user=user)
-        return Response(
-            {
-                "balance": user_wallet.balance
-            },
-            status=200
-        )
+        return Response({"balance": user_wallet.balance}, status=200)
     except Wallet.DoesNotExist:
         logger.warning(f"Wallet balance request by usr: {user.email}")
-        return Response(
-            {
-                "detail": "Wallet does not exist"
-            },
-            status=404
-        )
-    
+        return Response({"detail": "Wallet does not exist"}, status=404)
+
 
 @router.post(
     "/transfer",
     response=dict,
     url_name="wallet-transfer",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["transfer"])
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["transfer"]),
 )
 def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
     user = request.auth
@@ -252,60 +210,48 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
     recipient_wallet_id = payload.wallet_number
 
     if amount <= 0:
-        return Response(
-            {"detail": "Amount must be greater than 0"},
-            status=400
-        )
-    
+        return Response({"detail": "Amount must be greater than 0"}, status=400)
+
     try:
         with transaction.atomic():
-            user_wallet = Wallet.objects.select_for_update().get(user=user) # this is to lock rows to prevent race conditions
-            
+            user_wallet = Wallet.objects.select_for_update().get(
+                user=user
+            )  # this is to lock rows to prevent race conditions
+
             if str(user_wallet.id) == str(recipient_wallet_id):
                 return Response(
-                    {"detail": "Cannot transfer to your own wallet"},
-                    status=400
+                    {"detail": "Cannot transfer to your own wallet"}, status=400
                 )
             try:
-                recipient_wallet = Wallet.objects.select_for_update().get( # same idea to prevent race conditions
+                recipient_wallet = Wallet.objects.select_for_update().get(  # same idea to prevent race conditions
                     id=recipient_wallet_id
                 )
             except ObjectDoesNotExist:
-                return Response(
-                    {"detail": "Recipient wallet not found"},
-                    status=404
-                )
-        
+                return Response({"detail": "Recipient wallet not found"}, status=404)
+
             if user_wallet.balance < amount:
-                return Response(
-                    {"detail": "Insufficient balance"},
-                    status=400
-                )
+                return Response({"detail": "Insufficient balance"}, status=400)
 
             # create transaction records and link them
             transfer_out = Transaction.objects.create(
                 wallet=user_wallet,
                 type=Transaction.Type.TRANSFER_OUT,
                 amount=amount,
-                status=Transaction.Status.SUCCESS
+                status=Transaction.Status.SUCCESS,
             )
-            
+
             transfer_in = Transaction.objects.create(
                 wallet=recipient_wallet,
                 type=Transaction.Type.TRANSFER_IN,
                 amount=amount,
                 status=Transaction.Status.SUCCESS,
             )
-            
-            transfer_out.metadata = {
-                "transfer_to_id": transfer_in.id
-            }
-            transfer_in.metadata = {
-                "transfer_from_id": transfer_out.id
-            }
+
+            transfer_out.metadata = {"transfer_to_id": transfer_in.id}
+            transfer_in.metadata = {"transfer_from_id": transfer_out.id}
             transfer_out.save()
             transfer_in.save()
-            
+
             # update balances
             user_wallet.balance -= amount
             recipient_wallet.balance += amount
@@ -313,34 +259,25 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
             recipient_wallet.updated_at = timezone.now()
             user_wallet.save()
             recipient_wallet.save()
-        
+
         # transaction committed successfully
         return Response(
-            {
-                "status": "success",
-                "message": "Transfer completed"
-            },
-            status=200
+            {"status": "success", "message": "Transfer completed"}, status=200
         )
-        
+
     except DatabaseError as e:
         logger.error(f"Database error during transfer: {e}")
-        return Response(
-            {"detail": "Transfer failed due to database error"},
-            status=500
-        )
+        return Response({"detail": "Transfer failed due to database error"}, status=500)
     except Exception as e:
         logger.error(f"Unexpected error during transfer: {e}")
-        return Response(
-            {"detail": "An unexpected error occurred"},
-            status=500
-        )
-        
+        return Response({"detail": "An unexpected error occurred"}, status=500)
+
+
 @router.get(
     "/transactions",
     response=List[TransactionHistorySchema],
     url_name="wallet-transactions",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"])
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
 )
 @paginate
 def get_wallet_history(request):
@@ -355,19 +292,10 @@ def get_wallet_history(request):
                 "amount": tx.amount,
                 "status": tx.status,
                 "reference": tx.reference,
-                "created_at": tx.created_at
+                "created_at": tx.created_at,
             }
             all_tx_list.append(tx_data)
-        return Response(
-            {
-                "transactions": all_tx_list
-            },
-            status=200
-        )
+        return Response({"transactions": all_tx_list}, status=200)
     except DatabaseError as e:
         logger.error(f"Database error getting transactions: {e}")
-        return Response(
-            {"detail": "Transactions retrieval failed"},
-            status=500
-        )
-   
+        return Response({"detail": "Transactions retrieval failed"}, status=500)

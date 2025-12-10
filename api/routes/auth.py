@@ -1,6 +1,7 @@
 """
 Auth-related endpoints.
 """
+
 import logging
 from typing import List
 from uuid import UUID
@@ -41,10 +42,11 @@ expiry_refs = {
     "1H": now + timedelta(hours=1),
     "1D": now + timedelta(days=1),
     "1M": now + timedelta(days=30),
-    "1Y": now + timedelta(weeks=52)
+    "1Y": now + timedelta(weeks=52),
 }
 
 router = Router()
+
 
 @router.get(
     "/google",
@@ -70,9 +72,7 @@ def google_login(request):
 
     auth_url = f"{GoogleOAuthConfig.AUTH_URI}?{urlencode(params)}"
 
-    return {
-        "auth_url": auth_url
-    }
+    return {"auth_url": auth_url}
 
 
 @router.get(
@@ -118,12 +118,14 @@ def google_callback(request):
             raise IntegrationException("Failed to fetch user info from provider")
 
         user_data = userinfo_response.json()
-        
+
     except ConnectionError:
         return Response({"detail": "Connection Error"}, status=500)
     except requests.RequestException as e:
         logger.error(f"OAuth request error: {str(e)}")
-        return Response({"detail": "Unable to connect to Google OAuth service"}, status=502)
+        return Response(
+            {"detail": "Unable to connect to Google OAuth service"}, status=502
+        )
 
     try:
         user, user_created = User.objects.update_or_create(
@@ -140,10 +142,12 @@ def google_callback(request):
         wallet, wallet_created = Wallet.objects.get_or_create(user=user)
         if wallet_created and not user_created:
             logger.warning(f"Late wallet creation for user {user.email}")
-                    
+
     except DatabaseError as e:
         logger.error(f"Database error during user/wallet creation: {str(e)}")
-        return Response({"detail": "Unexpected error creating/updating user"}, status=503)
+        return Response(
+            {"detail": "Unexpected error creating/updating user"}, status=503
+        )
 
     tokens = create_tokens_for_user(user)
     logger.info(f"User {user.email} authenticated successfully")
@@ -156,10 +160,10 @@ def google_callback(request):
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.get_full_name(),
-                "picture": user.picture_url
+                "picture": user.picture_url,
             },
         },
-        status=201 if user_created else 200
+        status=201 if user_created else 200,
     )
 
 
@@ -174,11 +178,12 @@ def refresh_token(request, payload: RefreshTokenRequest):
     Refresh access token using refresh token.
     """
     new_access_token = refresh_access_token(payload.refresh)
-    
+
     if not new_access_token:
         raise InvalidRequestException("Invalid or expired refresh token")
-    
+
     return {"access": new_access_token}
+
 
 @router.post(
     "/keys/create",
@@ -194,13 +199,8 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
     api_keys = APIKey.objects.filter(user=user, is_active=True)
     num_of_api_keys = api_keys.count()
     if num_of_api_keys >= 5:
-        return Response(
-            {
-                "detail": "Maximum 5 active API keys allowed"
-            },
-            status=403
-        )
-    
+        return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
+
     try:
         plain_key, hashed_key = generate_api_key()
         new_api_key = APIKey.objects.create(
@@ -212,15 +212,12 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
             is_active=True,
         )
         return Response(
-            {
-                "api_key": plain_key,
-                "expires_at": new_api_key.expires_at
-            },
-            status=201            
+            {"api_key": plain_key, "expires_at": new_api_key.expires_at}, status=201
         )
     except DatabaseError as e:
         logger.error(f"Database error during api_key creation: {str(e)}")
         return Response({"detail": "Unexpected error creating api_key"}, status=503)
+
 
 @router.post(
     "/keys/rollover",
@@ -234,98 +231,57 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
         user = request.auth
         old_api_key = APIKey.objects.get(id=payload.expired_key_id)
         if old_api_key is None:
-            return Response(
-                {
-                    "detail": "API key not found"
-                },
-                404
-            )
+            return Response({"detail": "API key not found"}, 404)
         if not old_api_key.expires_at < now:
-            return Response(
-                {
-                    "Key is not expired. Cannot rollover."
-                },
-                status=403
-            )
+            return Response({"Key is not expired. Cannot rollover."}, status=403)
         api_keys = APIKey.objects.filter(user=user, is_active=True)
         num_of_api_keys = api_keys.count()
         if num_of_api_keys >= 5:
-            return Response(
-                {
-                    "detail": "Maximum 5 active API keys allowed"
-                },
-                status=403
-            )
-        plain_key, hashed_key = generate_api_key()        
+            return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
+        plain_key, hashed_key = generate_api_key()
         new_api_key = APIKey.objects.create(
             user=user,
             name=old_api_key.name,
             key_hash=hashed_key,
             permissions=old_api_key.permissions,
-            expires_at=expiry_refs[payload.expiry]
+            expires_at=expiry_refs[payload.expiry],
         )
         return Response(
-            {
-                "api_key": plain_key,
-                "expires_at": new_api_key.expires_at
-            },
-            status=201            
+            {"api_key": plain_key, "expires_at": new_api_key.expires_at}, status=201
         )
     except DatabaseError as e:
         logger.error(f"Database error during api_key rollover: {str(e)}")
         return Response({"detail": "Unexpected error rolling over api_key"}, status=503)
 
+
 @router.post(
     "/keys/{key_id}/revoke",
     response=dict,
     url_name="keys-revoke",
-    auth=JWTAPIKeyAuth(),    
+    auth=JWTAPIKeyAuth(),
 )
 def revoke_api_key(request, key_id: UUID):
     try:
         user = request.user
         api_key = APIKey.objects.get(id=key_id)
-        
+
         if not api_key.user == user:
-            return Response(
-                {
-                    "detail": "API key not found"
-                },
-                status=404
-            )
+            return Response({"detail": "API key not found"}, status=404)
 
         if not api_key.is_active:
-            return Response(
-                {
-                    "detail": "API key is already revoked"
-                },
-                status=400
-            )
-            
+            return Response({"detail": "API key is already revoked"}, status=400)
+
         api_key.is_active = False
         api_key.revoked_at = now
         api_key.save()
-        
-        return Response(
-            {
-                "message": "API key revoked"
-            },
-            status=200
-        )
-    except APIKey.DoesNotExist:
-        return Response(
-            {
-                "detail": "API key not found"
-            },
-            status=404
-        )
 
-   
+        return Response({"message": "API key revoked"}, status=200)
+    except APIKey.DoesNotExist:
+        return Response({"detail": "API key not found"}, status=404)
+
+
 @router.get(
-    "/keys",
-    response=List[KeysListSchema],
-    url_name="keys-list",
-    auth=JWTAPIKeyAuth()    
+    "/keys", response=List[KeysListSchema], url_name="keys-list", auth=JWTAPIKeyAuth()
 )
 @paginate
 def list_api_keys(request):
@@ -340,15 +296,10 @@ def list_api_keys(request):
                 "is_active": key.is_active,
                 "permissions": key.permissions,
                 "created_at": key.created_at,
-                "expires_at": key.expires_at
+                "expires_at": key.expires_at,
             }
             key_ids_list.append(key_data)
-        return Response(
-            {
-                "api_keys": key_ids_list
-            },
-            status=200
-        )
+        return Response({"api_keys": key_ids_list}, status=200)
     except DatabaseError as e:
         logger.error(f"Database error getting api key for user {user.email}: {str(e)}")
         return Response({"detail": "Unexpected error getting api keys"}, status=503)
