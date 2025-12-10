@@ -2,6 +2,7 @@
 Auth-related endpoints.
 """
 import logging
+from uuid import UUID
 from django.db import DatabaseError
 from django.utils import timezone
 from datetime import timedelta
@@ -219,7 +220,7 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
         return Response({"detail": "Unexpected error creating api_key"}, status=503)
 
 @router.post(
-    "keys/rollover",
+    "/keys/rollover",
     response=dict,
     url_name="keys-rollover",
     auth=JWTAPIKeyAuth(),
@@ -270,3 +271,48 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     except DatabaseError as e:
         logger.error(f"Database error during api_key rollover: {str(e)}")
         return Response({"detail": "Unexpected error rolling over api_key"}, status=503)
+
+@router.post(
+    "/keys/{key_id}/revoke",
+    response=dict,
+    url_name="keys-revoke",
+    auth=JWTAPIKeyAuth(),    
+)
+def revoke_api_key(request, key_id: UUID):
+    try:
+        user = request.user
+        api_key = APIKey.objects.get(id=key_id)
+        
+        if not api_key.user == user:
+            return Response(
+                {
+                    "detail": "API key not found"
+                },
+                status=404
+            )
+
+        if not api_key.is_active:
+            return Response(
+                {
+                    "detail": "API key is already revoked"
+                },
+                status=400
+            )
+            
+        api_key.is_active = False
+        api_key.revoked_at = now
+        api_key.save()
+        
+        return Response(
+            {
+                "message": "API key revoked"
+            },
+            status=200
+        )
+    except APIKey.DoesNotExist:
+        return Response(
+            {
+                "detail": "API key not found"
+            },
+            status=404
+        )
