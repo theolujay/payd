@@ -3,7 +3,22 @@ from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from ninja import ModelSchema
-from api.models import APIKey
+from api.models import APIKey, User
+
+
+class UserSchema(ModelSchema):
+    """Schema for user model"""
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email", 
+            "first_name",
+            "last_name",
+            "phone",
+            "picture_url",
+        ]
 
 
 class GoogleAuthURLResponse(BaseModel):
