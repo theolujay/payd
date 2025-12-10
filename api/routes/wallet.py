@@ -14,7 +14,7 @@ from ninja.responses import Response
 from ninja.pagination import paginate
 from paystack import PaystackClient, APIError
 
-from api.utils import JWTAPIKeyAuth
+from api.utils import JWTAuth, APIKeyAuth, dual_auth
 from api.models import Transaction, Wallet
 from api.schemas import (
     PaymentInitiateResponse,
@@ -37,7 +37,7 @@ paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
     "/deposit",
     response={201: PaymentInitiateResponse},
     url_name="wallet-deposit",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["deposit"]),
+    auth=dual_auth(permissions=["deposit"]),
 )
 def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
     """
@@ -116,7 +116,7 @@ def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
     "/transaction/{reference}/status",
     response=dict,
     url_name="transaction-status",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
+    auth=dual_auth(permissions=["read"]),
 )
 def get_transaction_status(
     request,
@@ -181,7 +181,7 @@ def get_transaction_status(
     "/balance",
     response=dict,
     url_name="wallet-balance",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
+    auth=dual_auth(permissions=["read"]),
 )
 def get_wallet_balance(request):
     user = request.auth
@@ -198,7 +198,7 @@ def get_wallet_balance(request):
     "/transfer",
     response=dict,
     url_name="wallet-transfer",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["transfer"]),
+    auth=dual_auth(permissions=["transfer"]),
 )
 def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
     user = request.auth
@@ -273,7 +273,7 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
     "/transactions",
     response=List[TransactionHistorySchema],
     url_name="wallet-transactions",
-    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["read"]),
+    auth=dual_auth(permissions=["read"]),
 )
 @paginate
 def get_wallet_history(request):
