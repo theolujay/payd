@@ -24,8 +24,6 @@ from api.schemas import (
 )
 from api.exceptions import (
     InvalidRequestException,
-    IntegrationException,
-    NotFoundException,
 )
 
 logger = logging.getLogger(__name__)
@@ -399,7 +397,4 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
             {"detail": "An unexpected error occurred"},
             status=500
         )
-        
-        
-        
         
