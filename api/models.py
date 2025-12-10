@@ -1,5 +1,6 @@
 import uuid
-from django.db import models
+
+from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.auth.models import BaseUserManager, AbstractUser
 
@@ -63,11 +64,49 @@ class Wallet(models.Model):
         default=uuid.uuid4, unique=True, primary_key=True, editable=False
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    wallet_number = models.CharField(max_length=20, unique=True)
-    balance = models.IntegerField(default=0)
+    wallet_number = models.IntegerField(unique=True, db_index=True)
+    balance = models.DecimalField(
+        max_digits=12, 
+        decimal_places=2, 
+        default=0
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['wallet_number']),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Auto-generate wallet_number if not provided"""
+        if not self.wallet_number:
+            self.wallet_number = self._generate_wallet_number()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_wallet_number():
+        """
+        Generate a unique wallet number.
+        Uses atomic transaction to prevent race conditions.
+        """
+        with transaction.atomic():
+            last_wallet = (
+                Wallet.objects
+                .select_for_update()
+                .order_by('-wallet_number')
+                .first()
+            )
+            
+            if last_wallet and last_wallet.wallet_number:
+                new_number = last_wallet.wallet_number + 1
+            else:
+                new_number = 1000000
+            
+            return new_number
+
+    def __str__(self):
+        return f"Wallet #{self.wallet_number} - {self.user.get_full_name()}"
 
 class Transaction(models.Model):
     """Transaction model for storing wallet transaction information"""
@@ -124,6 +163,7 @@ class APIKey(models.Model):
         max_length=30, blank=True, help_text="Friendly name for this API key"
     )
     key_hash = models.CharField(unique=True, max_length=128)
+    lookup_hint = models.CharField(max_length=10, db_index=True)
     permissions = ArrayField(
         models.CharField(max_length=20, choices=Permission.choices),
         default=list,

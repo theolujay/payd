@@ -1,68 +1,121 @@
 import hmac
 import secrets
 import hashlib
+import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
-from django.utils import timezone
-from django.contrib.auth.hashers import make_password, check_password
 
 import jwt
 from django.conf import settings
-from ninja.security import HttpBearer
+from django.utils import timezone
+from django.contrib.auth.hashers import make_password, check_password
+from ninja.security import HttpBearer, APIKeyHeader
+from ninja.errors import HttpError
 
 from api.models import APIKey, User
 
+logger = logging.getLogger(__name__)
 
 def generate_api_key():
     """
-    Make a secure, hashed API key
+    Generate a secure API key with a prefix for easy identification.
+    
+    Returns:
+        tuple: (plain_key, hashed_key)
+        - plain_key: The key to show the user (only shown once)
+        - hashed_key: The hashed version to store in database
+    
+    Format: payd_live_<32-char-random-string>
+    Example: payd_live_a7f3k9m2p1x5c8v4b6n0q3r7w9y2z5
     """
-    plain_key = secrets.token_urlsafe(32)
+    
+    random_part = secrets.token_urlsafe(32)
+    plain_key = f"payd_live_{random_part}"
     hashed_key = make_password(plain_key)
-    return plain_key, hashed_key
+    lookup_hint = _generate_lookup_hint(plain_key)
+    
+    return plain_key, hashed_key, lookup_hint
 
 
-def verify_api_key(plain_key):
+def verify_api_key(plain_key: str) -> Optional[APIKey]:
+    """
+    Verify an API key against stored hashes.
+    
+    Args:
+        plain_key: The plain text API key from the request
+        
+    Returns:
+        APIKey object if valid, None if invalid
+        
+    How it works:
+    1. Check if key has correct format (starts with 'payd_live_')
+    2. Query all active API keys for this user's account
+    3. Use constant-time comparison to prevent timing attacks
+    4. Return the matching APIKey object or None
+    """
+
+    if not plain_key or not plain_key.startswith("payd_live_"):
+        logger.info("No plain_key or doesn't start with 'payd_live'")
+        return None
+    
+    key_prefix = _generate_lookup_hint(plain_key)
+    
     try:
-        api_key = APIKey.objects.get(key_hash__startswith=plain_key[:10])
-        if check_password(plain_key, api_key.key_hash):
-            return api_key
+        potential_keys = APIKey.objects.filter(
+            lookup_hint=key_prefix,
+            is_active=True
+        )
+        
+        for api_key in potential_keys:
+            if check_password(plain_key, api_key.key_hash):
+                return api_key
+        logger.info("couldn't find a match")
+        return None
+        
     except APIKey.DoesNotExist:
+        logger.info("looks like the api key doesn't exist")
         return None
 
 
-from ninja.security import HttpBearer
-from ninja.errors import HttpError
+def _generate_lookup_hint(plain_key: str) -> str:
+    """
+    Generate a safe lookup hint from the plain key.
+    
+    This creates a short hash of the key that's safe to store
+    alongside the full hash. It allows fast database lookups
+    without exposing any part of the actual key.
+    
+    Args:
+        plain_key: The plain text API key
+        
+    Returns:
+        A 10-character hash prefix for database indexing
+    """
+    hash_obj = hashlib.sha256(plain_key.encode('utf-8'))
+    return hash_obj.hexdigest()[:10]
 
-
-class JWTAPIKeyAuth(HttpBearer):
-    """JWT Authentication with dual auth support"""
-
-    def __init__(self, dual_auth: bool = False, permissions: List[str] = None):
-        self.dual_auth = dual_auth
+class APIKeyAuth(APIKeyHeader):
+    """API Key authentication using X-API-Key header"""
+    
+    param_name = "X-API-Key"  # this tells Swagger to use this header
+    
+    def __init__(self, permissions: List[str] = None):
         self.permissions = permissions or []
         super().__init__()
-
-    def authenticate(self, request, token: str = None) -> Optional[User]:
-        if self.dual_auth and token is None:
-            return self._authenticate_api_key(request)
-
-        return self._authenticate_jwt(token)
-
-    def _authenticate_api_key(self, request) -> User:
-        """Authenticate using API key from x-api-key header"""
-        key = request.headers.get("x-api-key")
+    
+    def authenticate(self, request, key: Optional[str]) -> Optional[User]:
         if not key:
             return None
-
+        
         try:
             api_key = verify_api_key(key)
+            
             if not api_key:
-                raise HttpError(401, "Invalid API key")
-
+                raise HttpError(401, "API key invalid")
+            
             if not api_key.is_active:
                 raise HttpError(401, "API key has been revoked")
-
+            
             if (
                 hasattr(api_key, "expires_at")
                 and api_key.expires_at
@@ -77,34 +130,48 @@ class JWTAPIKeyAuth(HttpBearer):
                     raise HttpError(
                         403, f"API key lacks required permission: {perm_name}"
                     )
-
-            user = APIKey.objects.get(key_hash__startswith=key[:10]).user
-            return user
-
+            
+            return api_key.user
+            
         except APIKey.DoesNotExist:
             raise HttpError(401, "Invalid API key")
 
-    def _authenticate_jwt(self, token: str) -> Optional[User]:
-        """Authenticate using JWT token"""
+
+class JWTAuth(HttpBearer):
+    """JWT token authentication using Authorization: Bearer header"""
+    
+    def __init__(self, permissions: List[str] = None):
+        self.permissions = permissions or []
+        super().__init__()
+    
+    def authenticate(self, request, token: str) -> Optional[User]:
         if not token:
             return None
-
+        
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-
+            
             user_id = payload.get("user_id")
             if not user_id:
                 return None
-
+            
             user = User.objects.get(id=user_id)
+            
             return user
-
+            
         except jwt.ExpiredSignatureError:
             raise HttpError(401, "JWT token has expired")
         except jwt.InvalidTokenError:
             raise HttpError(401, "Invalid JWT token")
         except User.DoesNotExist:
             return None
+
+def dual_auth(permissions: List[str] = None):
+    """
+    Returns a list of auth schemes that accept EITHER JWT or API Key.
+    Swagger will show both options in the UI.
+    """
+    return [JWTAuth(permissions=permissions), APIKeyAuth(permissions=permissions)]
 
 
 def create_access_token(user: User) -> str:
