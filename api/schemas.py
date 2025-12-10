@@ -31,8 +31,8 @@ class RefreshTokenRequest(BaseModel):
 
     refresh: str = Field(..., description="Refresh token")
 
-class PaymentInitiateRequest(BaseModel):
-    """Schema for payment initiation request"""
+class WalletDepositRequest(BaseModel):
+    """Schema for wallet deposit request"""
 
     amount: int = Field(5000, gt=0, description="Amount in Kobo (smallest currency unit)")
 

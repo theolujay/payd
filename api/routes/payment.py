@@ -6,17 +6,18 @@ import logging
 
 from django.conf import settings
 from django.http import HttpRequest
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from ninja import Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
 from api.utils import JWTAPIKeyAuth, verify_paystack_signature
-from api.models import Transaction
+from api.models import Transaction, Wallet
 from api.schemas import (
-    PaymentInitiateRequest,
     PaymentInitiateResponse,
     TransactionStatusResponse,
+    WalletDepositRequest,
 )
 from api.exceptions import (
     InvalidRequestException,
@@ -31,21 +32,29 @@ router = Router()
 paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 
 @router.post(
-    "/paystack/initiate",
+    "/wallet/deposit",
     response={201: PaymentInitiateResponse},
-    url_name="paystack-initiate",
-    auth=JWTAPIKeyAuth(),
+    url_name="wallet-deposit",
+    auth=JWTAPIKeyAuth(dual_auth=True, permissions=["deposit"]),
 )
-def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
+def wallet_deposit_with_paystack(request, payload: WalletDepositRequest):
     """
-    Initiate payment - requires JWT authentication.
-    Use: Authorization: Bearer <your_access_token>
+    Make wallet deposit with Paystack by  initiatiaing payment
+    Requires JWT authentication OR API key with 'read' permission.
+    Use:
+        Authorization: Bearer <your_access_token> (for JWT auth)
+        OR
+        X-API-Key: <api_key> (for API key auth)        
     """
     user = request.auth
 
     try:
+        user_wallet = Wallet.objects.get(user=user)
         existing_transaction = Transaction.objects.filter(
-            amount=payload.amount, status=Transaction.Status.PENDING, user=user
+            amount=payload.amount,
+            wallet=user_wallet,
+            status=Transaction.Status.PENDING,
+            type=Transaction.Type.DEPOSIT
         ).first()
 
         if existing_transaction:
@@ -60,19 +69,31 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
                 status=201,
             )
             
-        data, _ = paystack_client.transactions.initialize(
+        payment_data, _ = paystack_client.transactions.initialize(
             amount=payload.amount,
             email=user.email,
             currency="NGN",
         )
-
+    except Wallet.DoesNotExist:
+        logger.info(f"Wallet not found for user: {user.email}")
+        return Response(
+            {
+                "detail": "Wallet not found for user"
+            },
+            status=503
+        )
+    except ValueError as e:
+        raise InvalidRequestException(str(e))
+    
+    try:
         transaction = Transaction.objects.create(
-            reference=data["reference"],
+            wallet=user_wallet,
+            type=Transaction.Type.DEPOSIT,
             amount=payload.amount,
-            currency="NGN",
+            reference=payment_data["reference"],
             status=Transaction.Status.PENDING,
-            authorization_url=data["authorization_url"],
-            user=user,
+            currency="NGN",
+            authorization_url=payment_data["authorization_url"],
         )
 
         logger.info(f"Payment initiated with reference {transaction.reference}")
@@ -84,14 +105,19 @@ def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
             },
             status=201,
         )
-
-    except ValueError as e:
-        raise InvalidRequestException(str(e))
-
     except APIError as e:
+        transaction.type = Transaction.Type.FAILED
+        transaction.updated_at = timezone.now()
+        transaction.save()
+        
         logger.error(f"Paystack API error: {e.message}")
-        raise IntegrationException("Payment initiation failed")
-
+        
+        return Response(
+            {
+                "detail": "Payment initiation failed"
+            },
+            402
+        )
 
 @router.post(
     "/paystack/webhook",
