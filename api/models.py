@@ -93,6 +93,7 @@ class Transaction(models.Model):
     currency = models.CharField(max_length=3, default="NGN")
     authorization_url = models.URLField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    paid_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

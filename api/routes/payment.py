@@ -158,6 +158,7 @@ def paystack_webhook(request: HttpRequest):
                 if status == "success":
                     transaction.status = Transaction.Status.SUCCESS
                     transaction.paid_at = data.get("paid_at")
+                    transaction.updated_at = timezone.now()
                 elif status == "failed":
                     transaction.status = Transaction.Status.FAILED
                 else:
