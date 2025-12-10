@@ -17,7 +17,7 @@ from ninja.responses import Response
 
 from api.utils import (
     GoogleOAuthConfig,
-    JWTAPIKeyAuth,
+    JWTAuth,
     create_tokens_for_user,
     refresh_access_token,
     generate_api_key,
@@ -189,7 +189,7 @@ def refresh_token(request, payload: RefreshTokenRequest):
     "/keys/create",
     response=dict,
     url_name="keys-create",
-    auth=JWTAPIKeyAuth(),
+    auth=JWTAuth(),
 )
 def create_api_key(request, payload: CreateAPIKeysRequest):
     """
@@ -202,11 +202,12 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
         return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
 
     try:
-        plain_key, hashed_key = generate_api_key()
+        plain_key, hashed_key, lookup_hint = generate_api_key()
         new_api_key = APIKey.objects.create(
             user=user,
             name=payload.name,
             key_hash=hashed_key,
+            lookup_hint=lookup_hint,
             permissions=payload.permissions,
             expires_at=timezone.now() + expiry_refs[payload.expiry],
             is_active=True,
@@ -223,7 +224,7 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
     "/keys/rollover",
     response=dict,
     url_name="keys-rollover",
-    auth=JWTAPIKeyAuth(),
+    auth=JWTAuth(),
 )
 def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     """Rollover expired key using ID"""
@@ -238,11 +239,12 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
         num_of_api_keys = api_keys.count()
         if num_of_api_keys >= 5:
             return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
-        plain_key, hashed_key = generate_api_key()
+        plain_key, hashed_key, lookup_hint = generate_api_key()
         new_api_key = APIKey.objects.create(
             user=user,
             name=old_api_key.name,
             key_hash=hashed_key,
+            lookup_hint=lookup_hint,
             permissions=old_api_key.permissions,
             expires_at=timezone.now() + expiry_refs[payload.expiry],
         )
@@ -258,7 +260,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     "/keys/{key_id}/revoke",
     response=dict,
     url_name="keys-revoke",
-    auth=JWTAPIKeyAuth(),
+    auth=JWTAuth(),
 )
 def revoke_api_key(request, key_id: UUID):
     try:
@@ -281,7 +283,7 @@ def revoke_api_key(request, key_id: UUID):
 
 
 @router.get(
-    "/keys", response=List[KeysListSchema], url_name="keys-list", auth=JWTAPIKeyAuth()
+    "/keys", response=List[KeysListSchema], url_name="keys-list", auth=JWTAuth()
 )
 @paginate
 def list_api_keys(request):
