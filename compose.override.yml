@@ -7,7 +7,13 @@ services:
     networks:
       - payd_dev
   app:
+    image: payd:dev
     command: "python manage.py runserver"
+    volumes:
+      - .:/home/payd/app
+      - payd_venv:/home/payd/app/.venv
+      - payd_media:/home/payd/app/media
+      - payd_static:/home/payd/app/staticfiles
     networks:
       - payd_dev
     ports:
@@ -22,3 +28,6 @@ networks:
 
 volumes:
   payd_db:
+  payd_venv:
+  payd_media:
+  payd_static:

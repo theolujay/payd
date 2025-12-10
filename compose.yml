@@ -14,10 +14,8 @@ services:
     env_file: .env
 
   app:
-    build: .
-    volumes:
-      - .:/home/payd/app
-      - payd_venv:/home/payd/app/.venv 
+    build:
+      context: .
     depends_on:
       db:
         condition: service_healthy
@@ -25,7 +23,3 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-
-
-volumes:
-  payd_venv:

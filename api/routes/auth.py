@@ -37,12 +37,12 @@ from api.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-now = timezone.now()
+
 expiry_refs = {
-    "1H": now + timedelta(hours=1),
-    "1D": now + timedelta(days=1),
-    "1M": now + timedelta(days=30),
-    "1Y": now + timedelta(weeks=52),
+    "1H": timedelta(hours=1),
+    "1D": timedelta(days=1),
+    "1M": timedelta(days=30),
+    "1Y": timedelta(weeks=52),
 }
 
 router = Router()
@@ -208,7 +208,7 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
             name=payload.name,
             key_hash=hashed_key,
             permissions=payload.permissions,
-            expires_at=expiry_refs[payload.expiry],
+            expires_at=timezone.now() + expiry_refs[payload.expiry],
             is_active=True,
         )
         return Response(
@@ -232,7 +232,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
         old_api_key = APIKey.objects.get(id=payload.expired_key_id)
         if old_api_key is None:
             return Response({"detail": "API key not found"}, 404)
-        if not old_api_key.expires_at < now:
+        if not old_api_key.expires_at < timezone.now():
             return Response({"Key is not expired. Cannot rollover."}, status=403)
         api_keys = APIKey.objects.filter(user=user, is_active=True)
         num_of_api_keys = api_keys.count()
@@ -244,7 +244,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
             name=old_api_key.name,
             key_hash=hashed_key,
             permissions=old_api_key.permissions,
-            expires_at=expiry_refs[payload.expiry],
+            expires_at=timezone.now() + expiry_refs[payload.expiry],
         )
         return Response(
             {"api_key": plain_key, "expires_at": new_api_key.expires_at}, status=201
@@ -262,7 +262,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
 )
 def revoke_api_key(request, key_id: UUID):
     try:
-        user = request.user
+        user = request.auth
         api_key = APIKey.objects.get(id=key_id)
 
         if not api_key.user == user:
@@ -272,7 +272,7 @@ def revoke_api_key(request, key_id: UUID):
             return Response({"detail": "API key is already revoked"}, status=400)
 
         api_key.is_active = False
-        api_key.revoked_at = now
+        api_key.revoked_at = timezone.now()
         api_key.save()
 
         return Response({"message": "API key revoked"}, status=200)
@@ -285,21 +285,5 @@ def revoke_api_key(request, key_id: UUID):
 )
 @paginate
 def list_api_keys(request):
-    user = request.user
-    api_key_ids = APIKey.objects.filter(user=user)
-    key_ids_list = []
-    try:
-        for key in api_key_ids:
-            key_data = {
-                "id": key.id,
-                "name": key.name,
-                "is_active": key.is_active,
-                "permissions": key.permissions,
-                "created_at": key.created_at,
-                "expires_at": key.expires_at,
-            }
-            key_ids_list.append(key_data)
-        return Response({"api_keys": key_ids_list}, status=200)
-    except DatabaseError as e:
-        logger.error(f"Database error getting api key for user {user.email}: {str(e)}")
-        return Response({"detail": "Unexpected error getting api keys"}, status=503)
+    user = request.auth
+    return APIKey.objects.filter(user=user)

@@ -2,6 +2,8 @@ from uuid import UUID
 from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
+from ninja import ModelSchema
+from api.models import APIKey
 
 
 class GoogleAuthURLResponse(BaseModel):
@@ -94,14 +96,21 @@ class CreateAPIKeysRequest(BaseModel):
     @classmethod
     def validate_name(cls, v):
         if len(v) > 30:
-            raise ValueError("Allowed permissions are: 'read', 'deposit', 'transfer")
+            raise ValueError("Name cannot be more than 30 characters")
         return v
 
     @field_validator("permissions")
     @classmethod
     def validate_permissions(cls, v):
-        if v not in ["read", "deposit", "transfer"]:
-            raise ValueError("Allowed permissions are: 'read', 'deposit', 'transfer")
+        allowed = {"read", "deposit", "transfer"}
+        
+        if isinstance(v, (list, set)):
+            invalid = set(v) - allowed
+            if invalid:
+                raise ValueError(f"Invalid permissions: {invalid}. Allowed: {allowed}")
+        elif v not in allowed:
+            raise ValueError(f"Allowed permissions are: {', '.join(allowed)}")
+        
         return v
 
     @field_validator("expiry")
@@ -126,12 +135,16 @@ class RolloverAPIKeyRequest(BaseModel):
         return v
 
 
-class KeysListSchema(BaseModel):
+class KeysListSchema(ModelSchema):
     """Schema for listing active API keys"""
 
-    id: UUID
-    name: str
-    is_active: bool
-    permissions: List[str]
-    created_at: datetime
-    expires_at: datetime
+    class Meta:
+        model = APIKey
+        fields = [
+            "id",
+            "name",
+            "is_active",
+            "permissions",
+            "created_at",
+            "expires_at",
+        ]

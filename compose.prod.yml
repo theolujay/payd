@@ -30,6 +30,7 @@ services:
     networks:
       - payd
   app:
+    image: payd:prod
     networks:
       - payd
     labels:

@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14.0"
 dependencies = [
-    "django[argon2]>=6.0",
+    "django[argon2,pylint]>=6.0",
     "django-ninja>=1.5.1",
     "google>=3.0.0",
     "paystack-api-wrapper>=0.1.1",
@@ -16,4 +16,6 @@ dependencies = [
     "uvicorn[standard]>=0.20.0",
     "black>=25.11.0",
     "pyjwt>=2.10.1",
+    "pylint>=4.0.4",
+    "pylint-django>=2.5.2",
 ]

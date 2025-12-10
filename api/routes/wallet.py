@@ -2,23 +2,19 @@
 Payment-related endpoints
 """
 
-import json
-import secrets
 import logging
 from typing import List
 
 from django.conf import settings
 from django.db import DatabaseError, transaction
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpRequest
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from ninja import Router, Query
 from ninja.responses import Response
 from ninja.pagination import paginate
 from paystack import PaystackClient, APIError
 
-from api.utils import JWTAPIKeyAuth, verify_paystack_signature
+from api.utils import JWTAPIKeyAuth
 from api.models import Transaction, Wallet
 from api.schemas import (
     PaymentInitiateResponse,
@@ -281,7 +277,7 @@ def wallet_to_wallet_transfer(request, payload: WalletToWalletTransferRequest):
 )
 @paginate
 def get_wallet_history(request):
-    user = request.user
+    user = request.auth
     transactions = Transaction.objects.filter(user=user).order_by("-created_at")
     all_tx_list = []
     try:
