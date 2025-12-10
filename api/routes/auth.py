@@ -4,7 +4,7 @@ Auth-related endpoints.
 import logging
 from django.db import DatabaseError
 from django.utils import timezone
-from datetime import datetime, timedelta
+from datetime import timedelta
 import requests
 from urllib.parse import urlencode
 
@@ -13,11 +13,10 @@ from ninja.responses import Response
 
 from api.utils import (
     GoogleOAuthConfig,
-    JWTAuth,
+    JWTAPIKeyAuth,
     create_tokens_for_user,
     refresh_access_token,
     generate_api_key,
-    verify_api_key,
 )
 from api.models import User, Wallet, APIKey
 from api.schemas import (
@@ -181,7 +180,7 @@ def refresh_token(request, payload: RefreshTokenRequest):
     "/keys/create",
     response=dict,
     url_name="keys-create",
-    auth=JWTAuth(),
+    auth=JWTAPIKeyAuth(),
 )
 def create_api_key(request, payload: CreateAPIKeysRequest):
     """
@@ -223,7 +222,7 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
     "keys/rollover",
     response=dict,
     url_name="keys-rollover",
-    auth=JWTAuth(),
+    auth=JWTAPIKeyAuth(),
 )
 def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     """Rollover expired key using ID"""

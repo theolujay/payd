@@ -1,7 +1,7 @@
 import hmac
 import secrets
 import hashlib
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password, check_password
@@ -28,10 +28,57 @@ def verify_api_key(plain_key):
     except APIKey.DoesNotExist:
         return None
     
-class JWTAuth(HttpBearer):
-    """JWT Authentication"""
+from ninja.security import HttpBearer
+from ninja.errors import HttpError
+
+class JWTAPIKeyAuth(HttpBearer):
+    """JWT Authentication with dual auth support"""
     
-    def authenticate(self, request, token: str) -> Optional[User]:
+    def __init__(self, dual_auth: bool = False, permissions: List[str] = None):
+        self.dual_auth = dual_auth
+        self.permissions = permissions or []
+        super().__init__()
+    
+    def authenticate(self, request, token: str = None) -> Optional[User]:
+        if self.dual_auth and token is None:
+            return self._authenticate_api_key(request)
+        
+        return self._authenticate_jwt(token)
+    
+    def _authenticate_api_key(self, request) -> User:
+        """Authenticate using API key from x-api-key header"""
+        key = request.headers.get("x-api-key")
+        if not key:
+            return None
+        
+        try:
+            api_key = verify_api_key(key)
+            if not api_key:
+                raise HttpError(401, "Invalid API key")
+            
+            if not api_key.is_active:
+                raise HttpError(401, "API key has been revoked")
+            
+            if hasattr(api_key, 'expires_at') and api_key.expires_at and api_key.expires_at < timezone.now():
+                raise HttpError(401, "API key has expired")
+
+            if self.permissions:
+                missing_perms = set(self.permissions) - set(api_key.permissions)
+                if missing_perms:
+                    perm_name = missing_perms.pop()
+                    raise HttpError(403, f"API key lacks required permission: {perm_name}")
+            
+            user = APIKey.objects.get(key_hash__startswith=key[:10]).user
+            return user
+            
+        except APIKey.DoesNotExist:
+            raise HttpError(401, "Invalid API key")
+    
+    def _authenticate_jwt(self, token: str) -> Optional[User]:
+        """Authenticate using JWT token"""
+        if not token:
+            return None
+        
         try:
             payload = jwt.decode(
                 token,
@@ -40,16 +87,19 @@ class JWTAuth(HttpBearer):
             )
             
             user_id = payload.get("user_id")
-            
             if not user_id:
                 return None
             
             user = User.objects.get(id=user_id)
             return user
             
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, User.DoesNotExist):
+        except jwt.ExpiredSignatureError:
+            raise HttpError(401, "JWT token has expired")
+        except jwt.InvalidTokenError:
+            raise HttpError(401, "Invalid JWT token")
+        except User.DoesNotExist:
             return None
-
+        
 
 def create_access_token(user: User) -> str:
     """Create access token (1 hour expiry)"""

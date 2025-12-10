@@ -11,7 +11,7 @@ from ninja import Router, Query
 from ninja.responses import Response
 from paystack import PaystackClient, APIError
 
-from api.utils import JWTAuth, verify_paystack_signature
+from api.utils import JWTAPIKeyAuth, verify_paystack_signature
 from api.models import Transaction
 from api.schemas import (
     PaymentInitiateRequest,
@@ -19,7 +19,6 @@ from api.schemas import (
     TransactionStatusResponse,
 )
 from api.exceptions import (
-    api_exception_handler,
     InvalidRequestException,
     IntegrationException,
     NotFoundException,
@@ -35,7 +34,7 @@ paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
     "/paystack/initiate",
     response={201: PaymentInitiateResponse},
     url_name="paystack-initiate",
-    auth=JWTAuth(),
+    auth=JWTAPIKeyAuth(),
 )
 def initiate_paystack_payment(request, payload: PaymentInitiateRequest):
     """
@@ -154,7 +153,7 @@ def paystack_webhook(request: HttpRequest):
     "/{reference}/status",
     response={200: TransactionStatusResponse},
     url_name="transaction-status",
-    auth=JWTAuth(),
+    auth=JWTAPIKeyAuth(),
 )
 def get_transaction_status(
     request,

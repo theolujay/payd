@@ -6,14 +6,14 @@ Wallet-related endpoints
 # from ninja import Router
 
 # from api.schemas import Wallet
-# from api.utils import JWTAuth
+# from api.utils import JWTAPIKeyAuth
 
 # logger = logging.getLogger(__name__)
 
 # router = Router()
 
 
-# @router.get("", response=Wallet, auth=JWTAuth())
+# @router.get("", response=Wallet, auth=JWTAPIKeyAuth())
 # def get_wallet(request):
 #     """
 #     Get wallet details for the authenticated user.
