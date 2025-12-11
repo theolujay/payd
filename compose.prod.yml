@@ -6,7 +6,7 @@ services:
       - "--api.dashboard=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=payd_dev"
+      - "--providers.docker.network=payd"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http.tls=true"
@@ -24,15 +24,39 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - payd
+    restart: unless-stopped
+
   db:
+    image: postgres:17.2-bookworm
     volumes:
       - payd_db:/var/lib/postgresql/data
+      - ./docker/postgresql/init:/docker-entrypoint-initdb.d:ro
     networks:
       - payd
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    env_file: .env
+
   app:
     image: payd:prod
+    build:
+      context: .
     networks:
       - payd
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DB_HOST=db
+    env_file: .env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.payd.rule=Host(`payd.theolujay.dev`)"
@@ -40,8 +64,6 @@ services:
       - "traefik.http.routers.payd.tls.certresolver=le"
       - "traefik.http.routers.payd.tls=true"
       - "traefik.http.services.payd.loadbalancer.server.port=8000"
-    environment:
-      - DB_HOST=db
 
 networks:
   payd:

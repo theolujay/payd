@@ -123,8 +123,8 @@ instance/
 target/
 
 # Environment Files
-*.env
 .env.*
+!.env.example
 # Project Specific
 # vmlc/tests/
 dev_data/

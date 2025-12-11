@@ -1,85 +1,84 @@
 # payd API
 
-A Django API for user authentication via Google OAuth, wallet management, and payment processing with Paystack.
+A lean wallet service built with Django Ninja. Integrates Google OAuth for authentication, Paystack for payments, and permissioned API keys for service-to-service access. Users can deposit money, track transactions, manage balances, and transfer funds securely. Swagger UI is included for full endpoint exploration.
 
 ## Features
 
--   **User Authentication:** User sign-up and sign-in via Google OAuth and JWT.
--   **Wallet Management:** Deposit funds, check balances, view transaction history, and perform wallet-to-wallet transfers.
--   **API Key Management:** Create, list, rollover, and revoke API keys with fine-grained permissions.
--   **Payment Processing:** Integration with Paystack for payment initiation, webhooks, and transaction status verification.
+* **Authentication:** Google OAuth + JWT for users. API keys for services with scoped permissions and expiry.
+* **Wallet:** One wallet per user, real-time balance updates, transaction history, and wallet-to-wallet transfers.
+* **Payments (Paystack):** Deposit initialization, transaction verification, and mandatory webhook handling for crediting.
+* **API Keys:** Create, list, revoke, and roll over keys. Max 5 active keys per user.
 
-## Project Setup
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd payd
-    ```
-
-2.  **Set up the environment:**
-
-    This project uses `uv` for package management.
-
-    ```bash
-    # Create and activate a virtual environment
-    python -m venv .venv
-    source .venv/bin/activate
-
-    # Sync the environment with the lock file
-    uv sync
-    ```
-
-3.  **Configure environment variables:**
-
-    Create a `.env` file in the project root by copying the example file:
-
-    ```bash
-    cp .env.example .env
-    ```
-
-    Open the .env file and fill in the required secret keys.
-
-4.  **Run database migrations:**
-    ```bash
-    python manage.py migrate
-    ```
-
-5.  **Start the development server:**
-    ```bash
-    python manage.py runserver
-    ```
-    The API will be available at `http://127.0.0.1:8000`.
-
-## API Endpoints
-
-All endpoints are available under the `/api/` prefix.
+## Core Flows
 
 ### Authentication
 
--   `GET /auth/google`: Initiate Google OAuth flow to get the authorization URL.
--   `GET /auth/google/callback`: Google OAuth callback to exchange authorization code for JWT tokens (access and refresh).
--   `POST /auth/token/refresh`: Refresh an expired access token using a valid refresh token.
+* Google sign-in returns JWT tokens.
+* API requests may use either:
 
-### User Management
+  * `Authorization: Bearer <token>`
+  * `x-api-key: <key>` (with permission checks)
 
--   `GET /user/profile`: Retrieve the authenticated user's profile information. (Requires JWT)
+### Deposits
 
-### Wallet Management
+1. Client hits `/wallet/deposit` with amount.
+2. Server initializes Paystack transaction and returns `authorization_url` + `reference`.
+3. User pays via Paystack.
+4. Paystack webhook hits `/wallet/paystack/webhook`.
+5. Signature is verified; wallet credited on confirmed success.
+   Only the webhook can credit wallets.
 
--   `POST /wallet/deposit`: Initiate a wallet deposit via Paystack. (Requires JWT or API Key with 'deposit' permission)
--   `GET /wallet/balance`: Get the authenticated user's current wallet balance. (Requires JWT or API Key with 'read' permission)
--   `POST /wallet/transfer`: Perform a wallet-to-wallet transfer to another user. (Requires JWT or API Key with 'transfer' permission)
--   `GET /wallet/transactions`: Get the authenticated user's transaction history. (Requires JWT or API Key with 'read' permission)
--   `GET /wallet/transaction/{reference}/status`: Get the status of a specific transaction by its reference. (Requires JWT or API Key with 'read' permission)
+### Transfers
 
-### API Key Management
+* Atomic wallet-to-wallet transfers with balance validation.
+* Transaction logs recorded for both parties.
 
--   `POST /auth/keys/create`: Create a new API key with specified name, permissions, and expiry. (Requires JWT)
--   `POST /auth/keys/rollover`: Rollover an expired API key, generating a new one with the same details. (Requires JWT)
--   `POST /auth/keys/{key_id}/revoke`: Revoke an active API key by its ID. (Requires JWT)
--   `GET /auth/keys`: List all API keys associated with the authenticated user. (Requires JWT)
+### API Keys
 
-### Webhooks
+* Create keys with permissions like `read`, `deposit`, or `transfer`.
+* Keys expire (`1H`, `1D`, `1M`, `1Y`), can be revoked, and support rollover.
 
--   `POST /webhooks/paystack`: Paystack webhook endpoint for receiving payment notifications and updating transaction statuses.
+## Endpoints
+
+Swagger UI: `/api/docs`
+
+Base prefix for all endpoints: `/api/`
+
+
+* **Auth:** `/auth/google`, `/auth/google/callback`, `/auth/token/refresh`
+* **API Keys:** `/auth/keys`, `/auth/keys/create`, `/auth/keys/rollover`, `/auth/keys/{id}/revoke`
+* **Wallet:** `/wallet/balance`, `/wallet/deposit`, `/wallet/transfer`, `/wallet/transactions`, `/wallet/transaction/{reference}/status`
+* **Webhook:** `/wallet/paystack/webhook`
+
+## Highlights
+
+* Webhooks are fully idempotent.
+* Transfers and credits run inside DB transactions.
+* Deposit references are unique and safely verified.
+* API keys stored hashed; only shown once on creation.
+
+## Setup
+
+```bash
+git clone https://github.com/theolujay/payd
+
+cd payd
+
+python -m venv .venv
+
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+cp .example.env .env 
+
+python manage.py migrate
+
+python manage.py runserver
+```
+
+Docker:
+
+```bash
+docker compose up --build
+```

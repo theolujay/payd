@@ -1,9 +1,13 @@
-
 services:
   db:
     image: postgres:17.2-bookworm
     volumes:
+      - payd_db:/var/lib/postgresql/data
       - ./docker/postgresql/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - payd_dev
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -14,12 +18,35 @@ services:
     env_file: .env
 
   app:
+    image: payd:dev
     build:
       context: .
+    command: "python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/home/payd/app
+      - payd_venv:/home/payd/app/.venv
+      - payd_media:/home/payd/app/media
+      - payd_static:/home/payd/app/staticfiles
+    ports:
+      - "8000:8000"
+    networks:
+      - payd_dev
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      - DB_HOST=db
     env_file: .env
     dns:
       - 8.8.8.8
       - 8.8.4.4
+
+networks:
+  payd_dev:
+    external: true
+
+volumes:
+  payd_db:
+  payd_venv:
+  payd_media:
+  payd_static:
