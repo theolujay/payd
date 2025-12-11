@@ -2,15 +2,16 @@
 Auth-related endpoints.
 """
 
+import secrets
 import logging
-from typing import List
-from uuid import UUID
-from django.db import DatabaseError
-from django.utils import timezone
-from datetime import timedelta
 import requests
+from uuid import UUID
+from typing import List
+from datetime import timedelta
 from urllib.parse import urlencode
 
+from django.db import DatabaseError
+from django.utils import timezone
 from ninja import Router, Path
 from ninja.pagination import paginate
 from ninja.responses import Response
@@ -72,13 +73,16 @@ def google_login(request):
     """Generate Google OAuth authorization URL."""
     if not GoogleOAuthConfig.CLIENT_ID or not GoogleOAuthConfig.CLIENT_SECRET:
         raise IntegrationException("OAuth not configured")
-
+    state = secrets.token_urlsafe(32)
+    request.session["oauth_state"] = state
     params = {
         "client_id": GoogleOAuthConfig.CLIENT_ID,
         "redirect_uri": GoogleOAuthConfig.REDIRECT_URI,
         "scope": " ".join(GoogleOAuthConfig.SCOPES),
         "response_type": "code",
         "access_type": "offline",
+        "prompt": "consent",
+        "state": state
     }
 
     auth_url = f"{GoogleOAuthConfig.AUTH_URI}?{urlencode(params)}"
@@ -101,9 +105,17 @@ def google_callback(request):
     Creates or updates user account and returns access/refresh tokens.
     """
     code = request.GET.get("code")
+    state = request.GET.get("state")
+    stored_state = request.session.get("oauth_state")
+    
     if not code:
         raise InvalidRequestException("Missing authorization code")
-
+    if not state or not stored_state:
+        raise InvalidRequestException("Missing state parameter")
+    if state != stored_state:
+        raise InvalidRequestException("Invalid state parameter - possible CSRF attack")
+    del request.session["oauth_state"]
+    
     try:
         token_response = requests.post(
             GoogleOAuthConfig.TOKEN_URI,
