@@ -1,12 +1,13 @@
 # payd API
 
-A simple Django API for handling user authentication via Google OAuth and processing payments with Paystack.
+A Django API for user authentication via Google OAuth, wallet management, and payment processing with Paystack.
 
 ## Features
 
-- User authentication with Google
-- Payment processing via Paystack
-- Secure configuration using environment variables
+-   **User Authentication:** User sign-up and sign-in via Google OAuth and JWT.
+-   **Wallet Management:** Deposit funds, check balances, view transaction history, and perform wallet-to-wallet transfers.
+-   **API Key Management:** Create, list, rollover, and revoke API keys with fine-grained permissions.
+-   **Payment Processing:** Integration with Paystack for payment initiation, webhooks, and transaction status verification.
 
 ## Project Setup
 
@@ -56,11 +57,29 @@ All endpoints are available under the `/api/` prefix.
 
 ### Authentication
 
--   `GET /auth/google`
--   `GET /auth/google/callback`
+-   `GET /auth/google`: Initiate Google OAuth flow to get the authorization URL.
+-   `GET /auth/google/callback`: Google OAuth callback to exchange authorization code for JWT tokens (access and refresh).
+-   `POST /auth/token/refresh`: Refresh an expired access token using a valid refresh token.
 
-### Payments
+### User Management
 
--   `POST /payments/paystack/initiate`
--   `POST /payments/paystack/webhook`
--   `GET /payments/{reference}/status`
+-   `GET /user/profile`: Retrieve the authenticated user's profile information. (Requires JWT)
+
+### Wallet Management
+
+-   `POST /wallet/deposit`: Initiate a wallet deposit via Paystack. (Requires JWT or API Key with 'deposit' permission)
+-   `GET /wallet/balance`: Get the authenticated user's current wallet balance. (Requires JWT or API Key with 'read' permission)
+-   `POST /wallet/transfer`: Perform a wallet-to-wallet transfer to another user. (Requires JWT or API Key with 'transfer' permission)
+-   `GET /wallet/transactions`: Get the authenticated user's transaction history. (Requires JWT or API Key with 'read' permission)
+-   `GET /wallet/transaction/{reference}/status`: Get the status of a specific transaction by its reference. (Requires JWT or API Key with 'read' permission)
+
+### API Key Management
+
+-   `POST /auth/keys/create`: Create a new API key with specified name, permissions, and expiry. (Requires JWT)
+-   `POST /auth/keys/rollover`: Rollover an expired API key, generating a new one with the same details. (Requires JWT)
+-   `POST /auth/keys/{key_id}/revoke`: Revoke an active API key by its ID. (Requires JWT)
+-   `GET /auth/keys`: List all API keys associated with the authenticated user. (Requires JWT)
+
+### Webhooks
+
+-   `POST /webhooks/paystack`: Paystack webhook endpoint for receiving payment notifications and updating transaction statuses.
