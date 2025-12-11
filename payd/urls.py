@@ -30,7 +30,7 @@ urlpatterns = [
         serve,
         {"path": "favicon.ico", "document_root": settings.BASE_DIR},
     ),
-    path("", RedirectView.as_view(url="/api/", permanent=False)),
+    path("", RedirectView.as_view(url="/api/docs", permanent=False)),
     path("docs/", RedirectView.as_view(url="/api/docs", permanent=False)),
 ]
 

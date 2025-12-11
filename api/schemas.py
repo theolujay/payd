@@ -5,18 +5,6 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from ninja import ModelSchema
 from api.models import APIKey, User
 
-API_KEY_HEADER_SPEC = {
-    "parameters": [
-        {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": False,
-            "schema": {"type": "string"},
-            "description": "API key for authentication (alternative to JWT Bearer token)",
-            "example": "pk_live_1234567890abcdef",
-        }
-    ]
-}
 class UserSchema(ModelSchema):
     """User profile with wallet information"""
 
@@ -190,7 +178,7 @@ class CreateAPIKeysRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "name": "Production API Key",
+                    "name": "Read Deposit key",
                     "permissions": ["read", "deposit"],
                     "expiry": "1Y"
                 }
@@ -202,7 +190,7 @@ class CreateAPIKeysRequest(BaseModel):
         ..., 
         description="Human-readable key name (max 30 characters)",
         max_length=30,
-        examples=["Production API Key", "Mobile App Key"]
+        examples=["Read Deposit key", "Transfer Key"]
     )
     permissions: List[str] = Field(
         ...,

@@ -16,6 +16,36 @@ from api.models import APIKey, User
 
 logger = logging.getLogger(__name__)
 
+
+API_KEY_HEADER_SPEC = {
+    "parameters": [
+        {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": False,
+            "schema": {
+                "type": "string",
+                "pattern": "^payd_live_[a-zA-Z0-9_-]{43,}$"
+            },
+            "description": "API key"
+        },
+        # {
+        #     "name": "Authorization",
+        #     "in": "header",
+        #     "required": False,
+        #     "schema": {
+        #         "type": "string",
+        #         "pattern": "^(Bearer )?[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_.+/=]*$"
+        #     },
+        #     "description": "Access token"
+        # }
+    ],
+    "security": [
+        {"ApiKeyAuth": []},
+        # {"BearerAuth": []}
+    ]
+}
+
 def generate_api_key():
     """
     Generate a secure API key with a prefix for easy identification.

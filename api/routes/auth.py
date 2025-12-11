@@ -16,6 +16,7 @@ from ninja.pagination import paginate
 from ninja.responses import Response
 
 from api.utils import (
+    API_KEY_HEADER_SPEC,
     GoogleOAuthConfig,
     JWTAuth,
     create_tokens_for_user,
@@ -232,6 +233,7 @@ def refresh_token(request, payload: RefreshTokenRequest):
     
     Authentication: Requires JWT token in Authorization: Bearer <token> header.
     """,
+    openapi_extra=API_KEY_HEADER_SPEC,
 )
 def create_api_key(request, payload: CreateAPIKeysRequest):
     """Create new API key for authenticated user (max 5 active keys)."""
@@ -281,6 +283,7 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
     
     Authentication: Requires JWT token in Authorization: Bearer <token> header.
     """,
+    openapi_extra=API_KEY_HEADER_SPEC,
 )
 def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     """Generate new API key from expired key, maintaining original settings."""
@@ -338,6 +341,7 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     
     Authentication: Requires JWT token in Authorization: Bearer <token> header.
     """,
+    openapi_extra=API_KEY_HEADER_SPEC,
 )
 def revoke_api_key(
     request, key_id: UUID = Path(..., description="UUID of the API key to revoke")
@@ -381,6 +385,7 @@ def revoke_api_key(
     
     Authentication: Requires JWT token in Authorization: Bearer <token> header.
     """,
+    openapi_extra=API_KEY_HEADER_SPEC,
 )
 @paginate
 def list_api_keys(request):

@@ -14,10 +14,9 @@ from ninja.responses import Response
 from ninja.pagination import paginate
 from paystack import PaystackClient, APIError
 
-from api.utils import dual_auth
+from api.utils import dual_auth, API_KEY_HEADER_SPEC
 from api.models import Transaction, Wallet
 from api.schemas import (
-    API_KEY_HEADER_SPEC,
     PaymentInitiateResponse,
     WalletToWalletTransferRequest,
     WalletDepositRequest,
