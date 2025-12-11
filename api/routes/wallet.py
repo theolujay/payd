@@ -282,4 +282,16 @@ def get_wallet_history(request):
         wallet=user.wallet
     ).order_by("-created_at")
 
-    return transactions
+    response_data = [
+        TransactionHistorySchema(
+            id=t.id,
+            type=t.type,
+            amount=t.amount,
+            status=t.status,
+            reference=t.reference,
+            created_at=t.created_at,
+        )
+        for t in transactions
+    ]
+
+    return response_data

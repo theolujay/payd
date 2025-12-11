@@ -54,18 +54,38 @@ class RefreshTokenRequest(BaseModel):
     refresh: str = Field(..., description="Refresh token")
 
 
+from pydantic import BaseModel, Field, field_validator
+
+MIN_AMOUNT = 5_000            # ₦50 in kobo
+MAX_AMOUNT = 10_000_000_00    # ₦10,000,000 in kobo
+JS_MAX_SAFE_INT = 9_007_199_254_740_991  # JavaScript's safe integer limit
+
 class WalletDepositRequest(BaseModel):
-    """Schema for wallet deposit request"""
+    """Schema for wallet deposit request sent to Paystack."""
 
     amount: int = Field(
-        5000, gt=0, description="Amount in Kobo (smallest currency unit)"
+        default=MIN_AMOUNT,
+        ge=MIN_AMOUNT,
+        le=MAX_AMOUNT,
+        description=(
+            "Deposit amount in kobo. Must be between ₦50 and ₦10,000,000. "
+            "Only whole integers are allowed."
+        ),
     )
 
     @field_validator("amount")
     @classmethod
-    def validate_amount(cls, v):
-        if v < 5000:
-            raise ValueError("Amount must be at least 5000 (50 naira)")
+    def validate_business_rules(cls, v):
+        if not isinstance(v, int):
+            raise ValueError("Amount must be an integer.")
+        if v > JS_MAX_SAFE_INT:
+            raise ValueError("Amount must be a safe number.")
+        if v < MIN_AMOUNT:
+            raise ValueError("Amount is too small to be processed online.")
+        if v > MAX_AMOUNT:
+            raise ValueError(
+                "Amount exceeds the maximum allowed for online processing."
+            )
         return v
 
 
@@ -83,7 +103,7 @@ class TransactionHistorySchema(BaseModel):
     type: str
     amount: int
     status: str
-    reference: str
+    reference: Optional[str]
     created_at: datetime
 
 
