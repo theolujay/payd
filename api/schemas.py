@@ -1,181 +1,288 @@
 from uuid import UUID
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from ninja import ModelSchema
 from api.models import APIKey, User
 
-
+API_KEY_HEADER_SPEC = {
+    "parameters": [
+        {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": False,
+            "schema": {"type": "string"},
+            "description": "API key for authentication (alternative to JWT Bearer token)",
+            "example": "pk_live_1234567890abcdef",
+        }
+    ]
+}
 class UserSchema(ModelSchema):
-    """Schema for user model"""
-    wallet_number: Optional[int] = None
+    """User profile with wallet information"""
+
+    wallet_number: Optional[int] = Field(None, description="User's unique wallet number")
+
     class Meta:
         model = User
         fields = [
             "id",
-            "email", 
+            "email",
             "first_name",
             "last_name",
             "phone",
             "picture_url",
         ]
-        
+
     @staticmethod
     def resolve_wallet_number(obj):
-        """Get wallet number from related wallet"""
-        return obj.wallet.wallet_number if hasattr(obj, 'wallet') and obj.wallet else None
+        """Extract wallet number from user's wallet"""
+        return (
+            obj.wallet.wallet_number if hasattr(obj, "wallet") and obj.wallet else None
+        )
+
 
 class GoogleAuthURLResponse(BaseModel):
-    """Response with Google OAuth URL"""
+    """Google OAuth authorization URL"""
 
-    auth_url: str
+    auth_url: str = Field(..., description="Google OAuth authorization URL to open in browser")
 
 
 class UserInfo(BaseModel):
-    """User information"""
+    """Basic user information"""
 
-    id: str
-    email: str
-    name: str
-    picture: str | None = None
+    id: str = Field(..., description="User's unique identifier")
+    email: str = Field(..., description="User's email address")
+    name: str = Field(..., description="User's full name")
+    picture: str | None = Field(None, description="URL to user's profile picture")
 
 
 class TokenResponse(BaseModel):
-    """JWT token response"""
+    """JWT authentication tokens with user info"""
 
-    access: str
-    refresh: str
-    user: UserInfo
+    access: str = Field(..., description="JWT access token for API authentication")
+    refresh: str = Field(..., description="JWT refresh token to obtain new access tokens")
+    user: UserInfo = Field(..., description="Authenticated user information")
 
 
 class RefreshTokenRequest(BaseModel):
-    """Request to refresh access token"""
+    """Request to refresh expired access token"""
 
-    refresh: str = Field(..., description="Refresh token")
+    refresh: str = Field(..., description="Valid refresh token")
 
 
-from pydantic import BaseModel, Field, field_validator
-
-MIN_AMOUNT = 5_000            # ₦50 in kobo
-MAX_AMOUNT = 10_000_000_00    # ₦10,000,000 in kobo
+# Payment amount validation constants
+MIN_AMOUNT = 5_000  # ₦50 in kobo
+MAX_AMOUNT = 1_000_000_000  # ₦10,000,000 in kobo
 JS_MAX_SAFE_INT = 9_007_199_254_740_991  # JavaScript's safe integer limit
 
-class WalletDepositRequest(BaseModel):
-    """Schema for wallet deposit request sent to Paystack."""
 
-    amount: int = Field(
-        default=MIN_AMOUNT,
-        ge=MIN_AMOUNT,
-        le=MAX_AMOUNT,
-        description=(
-            "Deposit amount in kobo. Must be between ₦50 and ₦10,000,000. "
-            "Only whole integers are allowed."
-        ),
+class WalletDepositRequest(BaseModel):
+    """Wallet deposit request with amount validation"""
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "amount": 10_000_000,
+                },
+                {
+                    "amount": "10_000_000",
+                }
+            ]
+        }
     )
+
+    amount: int | str = Field(
+        default=MIN_AMOUNT,
+        description=(
+            "Deposit amount in kobo (100 kobo = ₦1). "
+            "Minimum: ₦50 (5,000 kobo), Maximum: ₦10,000,000 (1,000,000,000 kobo). "
+            "Use underscores for readability: 10_000_000 instead of 10000000"
+        ),
+        examples=[10_000_000, "10_000_000"],
+    )
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def normalize_amount(cls, v):
+        """Convert string input with underscores to integer"""
+        if isinstance(v, str):
+            try:
+                v = int(v.replace("_", ""))
+            except ValueError:
+                raise ValueError("Amount must be a valid number")
+        return v
 
     @field_validator("amount")
     @classmethod
     def validate_business_rules(cls, v):
+        """Validate amount is within acceptable business and technical limits"""
         if not isinstance(v, int):
-            raise ValueError("Amount must be an integer.")
+            raise ValueError("Amount must be an integer")
         if v > JS_MAX_SAFE_INT:
-            raise ValueError("Amount must be a safe number.")
+            raise ValueError("Amount must be a safe number")
         if v < MIN_AMOUNT:
-            raise ValueError("Amount is too small to be processed online.")
+            raise ValueError(f"Amount too small. Minimum is ₦50 ({MIN_AMOUNT:,} kobo)")
         if v > MAX_AMOUNT:
-            raise ValueError(
-                "Amount exceeds the maximum allowed for online processing."
-            )
+            raise ValueError(f"Amount too large. Maximum is ₦10,000,000 ({MAX_AMOUNT:,} kobo)")
         return v
 
 
 class WalletToWalletTransferRequest(BaseModel):
-    """Schema for wallet-to-wallet transfers"""
+    """Wallet-to-wallet transfer request"""
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "wallet_number": 1234567890,
+                    "amount": 5_000_000
+                }
+            ]
+        }
+    )
 
-    wallet_number: int
-    amount: int
+    wallet_number: int = Field(
+        ..., 
+        description="Recipient's 10-digit wallet number",
+        examples=[1234567890]
+    )
+    amount: int = Field(
+        ..., 
+        description="Transfer amount in kobo (100 kobo = ₦1)",
+        examples=[5_000_000],
+        gt=0
+    )
 
 
 class TransactionHistorySchema(BaseModel):
-    """Schema for transaction history"""
+    """Transaction record for history listing"""
 
-    id: UUID
-    type: str
-    amount: int
-    status: str
-    reference: Optional[str]
-    created_at: datetime
+    id: UUID = Field(..., description="Unique transaction identifier")
+    type: str = Field(..., description="Transaction type (deposit, transfer_in, transfer_out)")
+    amount: int = Field(..., description="Transaction amount in kobo")
+    status: str = Field(..., description="Transaction status (pending, success, failed)")
+    reference: Optional[str] = Field(None, description="Payment gateway reference (for deposits)")
+    created_at: datetime = Field(..., description="Transaction creation timestamp")
 
 
 class PaymentInitiateResponse(BaseModel):
-    """Schema for payment initiation response"""
+    """Paystack payment initialization response"""
 
-    reference: str
-    authorization_url: str
+    reference: str = Field(..., description="Unique payment reference ID")
+    authorization_url: str = Field(..., description="Paystack payment page URL - redirect user here")
 
 
 class TransactionStatusResponse(BaseModel):
-    """Schema for transaction status response"""
+    """Transaction status details"""
 
-    reference: str
-    status: str
-    amount: int
-    paid_at: datetime | None = None
-    currency: str = "NGN"
+    reference: str = Field(..., description="Transaction reference ID")
+    status: str = Field(..., description="Current transaction status")
+    amount: int = Field(..., description="Transaction amount in kobo")
+    paid_at: datetime | None = Field(None, description="Payment completion timestamp")
+    currency: str = Field(default="NGN", description="Currency code")
 
 
 class CreateAPIKeysRequest(BaseModel):
-    """Schema for creating API keys"""
+    """API key creation request with validation"""
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "Production API Key",
+                    "permissions": ["read", "deposit"],
+                    "expiry": "1Y"
+                }
+            ]
+        }
+    )
 
-    name: str
-    permissions: List[str]
-    expiry: str
+    name: str = Field(
+        ..., 
+        description="Human-readable key name (max 30 characters)",
+        max_length=30,
+        examples=["Production API Key", "Mobile App Key"]
+    )
+    permissions: List[str] = Field(
+        ...,
+        description="List of permissions. Available: 'read', 'deposit', 'transfer'",
+        examples=[["read", "deposit"], ["read", "deposit", "transfer"]]
+    )
+    expiry: str = Field(
+        ...,
+        description="Key expiration period: '1H' (1 hour), '1D' (1 day), '1M' (30 days), '1Y' (1 year)",
+        examples=["1M", "1Y"]
+    )
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, v):
+        """Ensure name length is within limits"""
         if len(v) > 30:
-            raise ValueError("Name cannot be more than 30 characters")
+            raise ValueError("Name cannot exceed 30 characters")
         return v
 
     @field_validator("permissions")
     @classmethod
     def validate_permissions(cls, v):
+        """Validate permissions are from allowed set"""
         allowed = {"read", "deposit", "transfer"}
-        
+
         if isinstance(v, (list, set)):
             invalid = set(v) - allowed
             if invalid:
                 raise ValueError(f"Invalid permissions: {invalid}. Allowed: {allowed}")
         elif v not in allowed:
-            raise ValueError(f"Allowed permissions are: {', '.join(allowed)}")
-        
+            raise ValueError(f"Allowed permissions: {', '.join(allowed)}")
+
         return v
 
     @field_validator("expiry")
     @classmethod
     def validate_expiry(cls, v):
+        """Validate expiry format"""
         if v not in ["1H", "1D", "1M", "1Y"]:
-            raise ValueError("Allowed expiry format: '1H', '1D', '1M', '1Y'")
+            raise ValueError("Allowed expiry options: '1H', '1D', '1M', '1Y'")
         return v
 
 
 class RolloverAPIKeyRequest(BaseModel):
-    """Schema for API key rollover"""
+    """API key rollover request for expired keys"""
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "expired_key_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                    "expiry": "1Y"
+                }
+            ]
+        }
+    )
 
-    expired_key_id: UUID
-    expiry: str
+    expired_key_id: UUID = Field(
+        ..., 
+        description="UUID of the expired API key to replace",
+        examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
+    )
+    expiry: str = Field(
+        ...,
+        description="New expiration period: '1H', '1D', '1M', or '1Y'",
+        examples=["1Y"]
+    )
 
     @field_validator("expiry")
     @classmethod
     def validate_expiry(cls, v):
+        """Validate expiry format"""
         if v not in ["1H", "1D", "1M", "1Y"]:
-            raise ValueError("Allowed expiry format: '1H', '1D', '1M', '1Y'")
+            raise ValueError("Allowed expiry options: '1H', '1D', '1M', '1Y'")
         return v
 
 
 class KeysListSchema(ModelSchema):
-    """Schema for listing active API keys"""
+    """API key listing with essential details"""
 
     class Meta:
         model = APIKey

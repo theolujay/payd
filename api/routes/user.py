@@ -9,12 +9,13 @@ from api.schemas import UserSchema
 router = Router()
 
 
-@router.get("/profile", response=UserSchema, auth=JWTAuth())
+@router.get(
+    "/profile",
+    response=UserSchema,
+    auth=JWTAuth(),
+    summary="Get User Profile",
+    description="Retrieve your profile information including wallet number.",
+)
 def get_user_profile(request):
-    """
-    Get the authenticated user's profile.
-    Requires JWT authentication.
-    Use:
-        Authorization: Bearer <your_access_token>
-    """
+    """Get authenticated user's profile and wallet information."""
     return request.auth

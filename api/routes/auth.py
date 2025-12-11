@@ -11,7 +11,7 @@ from datetime import timedelta
 import requests
 from urllib.parse import urlencode
 
-from ninja import Router
+from ninja import Router, Path
 from ninja.pagination import paginate
 from ninja.responses import Response
 
@@ -53,12 +53,22 @@ router = Router()
     response=GoogleAuthURLResponse,
     url_name="google-login",
     auth=None,
+    summary="Get Google OAuth URL",
+    description="""
+    Returns the Google OAuth authorization URL for user authentication.
+    
+    How to use:
+    1. Call this endpoint to get the authorization URL
+    2. Redirect the user to this URL in their browser
+    3. User signs in with Google and grants permissions
+    4. Google redirects back to the callback URL with an authorization code
+    5. The callback endpoint exchanges the code for JWT tokens
+    
+    Authentication: None required
+    """,
 )
 def google_login(request):
-    """
-    Get Google OAuth URL for authentication.
-    Copy the returned URL and open it in your browser to sign in.
-    """
+    """Generate Google OAuth authorization URL."""
     if not GoogleOAuthConfig.CLIENT_ID or not GoogleOAuthConfig.CLIENT_SECRET:
         raise IntegrationException("OAuth not configured")
 
@@ -80,12 +90,14 @@ def google_login(request):
     response=TokenResponse,
     url_name="google-callback",
     auth=None,
-    include_in_schema=False, 
+    include_in_schema=False,
 )
 def google_callback(request):
     """
-    Google OAuth callback - exchanges auth code for JWT tokens.
-    After signing in with Google, you'll be redirected here.
+    Exchange Google OAuth code for JWT tokens.
+    
+    This endpoint is called automatically after Google authentication.
+    Creates or updates user account and returns access/refresh tokens.
     """
     code = request.GET.get("code")
     if not code:
@@ -173,11 +185,19 @@ def google_callback(request):
     response=dict,
     url_name="token-refresh",
     auth=None,
+    summary="Refresh Access Token",
+    description="""
+    Generate a new access token using a valid refresh token.
+    
+    When to use: Call this endpoint when your access token expires.
+    
+    Authentication: None required, but you must provide a valid refresh token in the request body.
+    
+    Response: Returns a new access token that you should use for subsequent API calls.
+    """,
 )
 def refresh_token(request, payload: RefreshTokenRequest):
-    """
-    Refresh access token using refresh token.
-    """
+    """Exchange refresh token for new access token."""
     new_access_token = refresh_access_token(payload.refresh)
 
     if not new_access_token:
@@ -191,11 +211,30 @@ def refresh_token(request, payload: RefreshTokenRequest):
     response=dict,
     url_name="keys-create",
     auth=JWTAuth(),
+    summary="Create API Key",
+    description="""
+    Create a new API key with specified permissions and expiration period.
+    
+    Limits: Maximum 5 active API keys per user.
+    
+    Permissions:
+    - read: View wallet balance and transaction history
+    - deposit: Initiate deposits into wallet
+    - transfer: Transfer funds between wallets
+    
+    Expiration options:
+    - 1H: 1 hour
+    - 1D: 1 day
+    - 1M: 30 days
+    - 1Y: 1 year
+    
+    Security: The API key is only shown once upon creation. Store it securely.
+    
+    Authentication: Requires JWT token in Authorization: Bearer <token> header.
+    """,
 )
 def create_api_key(request, payload: CreateAPIKeysRequest):
-    """
-    Create API keys for the authenticated user
-    """
+    """Create new API key for authenticated user (max 5 active keys)."""
     user = request.auth
     api_keys = APIKey.objects.filter(user=user, is_active=True)
     num_of_api_keys = api_keys.count()
@@ -226,20 +265,42 @@ def create_api_key(request, payload: CreateAPIKeysRequest):
     response=dict,
     url_name="keys-rollover",
     auth=JWTAuth(),
+    summary="Rollover Expired API Key",
+    description="""
+    Replace an expired API key with a new one while preserving its name and permissions.
+    
+    Use case: When an API key expires, use this endpoint to generate a replacement without losing the key's configuration.
+    
+    Requirements:
+    - Original key must be expired
+    - Must not exceed 5 active keys limit
+    
+    What's preserved: Name and permissions from the old key
+    
+    What's new: Key value and expiration date
+    
+    Authentication: Requires JWT token in Authorization: Bearer <token> header.
+    """,
 )
 def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
-    """Rollover expired key using ID"""
+    """Generate new API key from expired key, maintaining original settings."""
+    user = request.auth
+    
     try:
-        user = request.auth
-        old_api_key = APIKey.objects.get(id=payload.expired_key_id)
-        if old_api_key is None:
-            return Response({"detail": "API key not found"}, 404)
-        if not old_api_key.expires_at < timezone.now():
-            return Response({"detail": "Key is not expired. Cannot rollover."}, status=403)
-        api_keys = APIKey.objects.filter(user=user, is_active=True)
-        num_of_api_keys = api_keys.count()
-        if num_of_api_keys >= 5:
-            return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
+        old_api_key = APIKey.objects.get(id=payload.expired_key_id, user=user)
+    except APIKey.DoesNotExist:
+        return Response({"detail": "API key not found"}, status=404)
+    
+    if not old_api_key.expires_at < timezone.now():
+        return Response(
+            {"detail": "Key is not expired. Cannot rollover."}, status=403
+        )
+    
+    api_keys = APIKey.objects.filter(user=user, is_active=True)
+    if api_keys.count() >= 5:
+        return Response({"detail": "Maximum 5 active API keys allowed"}, status=403)
+    
+    try:
         plain_key, hashed_key, lookup_hint = generate_api_key()
         new_api_key = APIKey.objects.create(
             user=user,
@@ -262,31 +323,68 @@ def rollover_expired_api_key(request, payload: RolloverAPIKeyRequest):
     response=dict,
     url_name="keys-revoke",
     auth=JWTAuth(),
+    summary="Revoke API Key",
+    description="""
+    Permanently deactivate an API key. This action cannot be undone.
+    
+    When to use:
+    - Key has been compromised
+    - Key is no longer needed
+    - Replacing key with new one
+    
+    Effect: The key becomes immediately inactive and cannot be used for authentication.
+    
+    Note: This does not delete the key from the database, it only marks it as inactive.
+    
+    Authentication: Requires JWT token in Authorization: Bearer <token> header.
+    """,
 )
-def revoke_api_key(request, key_id: UUID):
+def revoke_api_key(
+    request, key_id: UUID = Path(..., description="UUID of the API key to revoke")
+):
+    """Revoke (deactivate) an API key permanently."""
+    user = request.auth
+    
     try:
-        user = request.auth
-        api_key = APIKey.objects.get(id=key_id)
-
-        if not api_key.user == user:
-            return Response({"detail": "API key not found"}, status=404)
-
-        if not api_key.is_active:
-            return Response({"detail": "API key is already revoked"}, status=400)
-
-        api_key.is_active = False
-        api_key.revoked_at = timezone.now()
-        api_key.save()
-
-        return Response({"message": "API key revoked"}, status=200)
+        api_key = APIKey.objects.get(id=key_id, user=user)
     except APIKey.DoesNotExist:
         return Response({"detail": "API key not found"}, status=404)
 
+    if not api_key.is_active:
+        return Response({"detail": "API key is already revoked"}, status=400)
+
+    api_key.is_active = False
+    api_key.revoked_at = timezone.now()
+    api_key.save()
+
+    return Response({"message": "API key revoked"}, status=200)
+
 
 @router.get(
-    "/keys", response=List[KeysListSchema], url_name="keys-list", auth=JWTAuth()
+    "/keys",
+    response=List[KeysListSchema],
+    url_name="keys-list",
+    auth=JWTAuth(),
+    summary="List API Keys",
+    description="""
+    Retrieve all API keys (both active and revoked) for your account with pagination support.
+    
+    Returns: List of API keys showing:
+    - Key ID and name
+    - Active status
+    - Permissions
+    - Creation and expiration dates
+    
+    Note: The actual key values are not returned (only shown once during creation).
+    
+    Pagination: Use limit and offset query parameters to paginate results.
+    
+    Authentication: Requires JWT token in Authorization: Bearer <token> header.
+    """,
 )
 @paginate
 def list_api_keys(request):
+    """List all API keys for authenticated user with pagination support."""
     user = request.auth
     return APIKey.objects.filter(user=user)
+

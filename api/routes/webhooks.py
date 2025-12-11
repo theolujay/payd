@@ -1,5 +1,5 @@
 """
-Payment-related endpoints
+Webhooks-related endpoints
 """
 
 import json
@@ -35,7 +35,12 @@ paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
 )
 @csrf_exempt
 def paystack_webhook(request: HttpRequest):
-    """Handle Paystack webhook notifications"""
+    """
+    Process Paystack webhook notifications for payment events.
+    
+    Verifies webhook signature, processes charge.success events,
+    and updates transaction status and wallet balance accordingly.
+    """
     signature = request.headers.get("x-paystack-signature")
     if not signature:
         logger.warning("Missing Paystack signature header")
@@ -67,12 +72,14 @@ def paystack_webhook(request: HttpRequest):
                     transaction.status = Transaction.Status.SUCCESS
                     transaction.paid_at = data.get("paid_at")
                     transaction.updated_at = timezone.now()
+                    
+                    # Credit wallet for successful deposits
                     if transaction.type == Transaction.Type.DEPOSIT:
                         wallet = transaction.wallet
-                        current_wallet_balance = wallet.balance
-                        wallet.balance = current_wallet_balance + transaction.amount
+                        wallet.balance += transaction.amount
                         wallet.updated_at = timezone.now()
                         wallet.save()
+                        
                 elif status == "failed":
                     transaction.status = Transaction.Status.FAILED
                 else:
