@@ -80,6 +80,7 @@ def google_login(request):
     response=TokenResponse,
     url_name="google-callback",
     auth=None,
+    include_in_schema=False, 
 )
 def google_callback(request):
     """

@@ -13,7 +13,12 @@ from django.views.static import serve
 from api.routes import api
 
 
-@api.get("/", summary="API Root / Health Check", tags=["Home"])
+@api.get(
+    "/",
+    summary="API Root / Health Check",
+    tags=["Home"],
+    include_in_schema=False,
+    )
 def root(request):
     return {"message": "Welcome to Payd API!"}
 

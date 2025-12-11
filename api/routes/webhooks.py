@@ -31,6 +31,7 @@ paystack_client = PaystackClient(secret_key=settings.PAYSTACK_SECRET_KEY)
     response={200: dict, 400: dict, 500: dict},
     url_name="paystack-webhook",
     auth=None,
+    include_in_schema=False,
 )
 @csrf_exempt
 def paystack_webhook(request: HttpRequest):
