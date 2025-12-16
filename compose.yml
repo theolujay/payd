@@ -1,3 +1,26 @@
+x-app-base: &app-base
+  build: .
+  volumes:
+    - .:/home/payd/app
+    - payd_media:/home/payd/app/media
+    - payd_static:/home/payd/app/staticfiles
+  networks:
+    - payd_dev
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+  environment:
+    - UV_NO_DEV=0
+    - DB_HOST=db
+    - CELERY_BROKER_URL=redis://redis:6379/0
+    - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  env_file: .env
+  dns:
+    - 8.8.8.8
+    - 8.8.4.4
+
 services:
   db:
     image: postgres:17.2-bookworm
@@ -17,29 +40,32 @@ services:
       start_period: 30s
     env_file: .env
 
-  app:
-    image: payd:dev
-    build:
-      context: .
-    command: "python manage.py runserver 0.0.0.0:8000"
+  redis:
+    image: redis:7.2.4-alpine
     volumes:
-      - .:/home/payd/app
-      - payd_venv:/home/payd/app/.venv
-      - payd_media:/home/payd/app/media
-      - payd_static:/home/payd/app/staticfiles
+      - payd_redis:/data
     ports:
-      - "8000:8000"
+      - "6379:6379"
     networks:
       - payd_dev
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - DB_HOST=db
-    env_file: .env
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    restart: unless-stopped
+
+  app:
+    <<: *app-base
+    entrypoint: "./entrypoint.sh"
+    command: "python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+  celery_worker:
+    <<: *app-base
+    entrypoint: ""
+    command: celery -A payd worker -l info
+
+  celery_beat:
+    <<: *app-base
+    entrypoint: ""
+    command: celery -A payd beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
 networks:
   payd_dev:
@@ -48,5 +74,6 @@ networks:
 volumes:
   payd_db:
   payd_venv:
+  payd_redis:
   payd_media:
   payd_static:

@@ -1,38 +1,62 @@
-FROM python:3.14-slim-bookworm
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-client && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN groupadd --system --gid 999 payd && \
+    useradd --system --uid 999 --gid 999 --create-home payd
+WORKDIR /app
 
-RUN groupadd --system --gid 7000 payd && \
-    useradd --system --uid 7000 --gid payd --home /home/payd --create-home payd
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_NO_DEV=1
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONHASHSEED=random \
-    PYTHONIOENCODING=utf-8 \
-    TERM=xterm-256color \
-    UV_CACHE_DIR=/tmp/uv-cache \
-    PATH="/home/payd/app/.venv/bin:${PATH}"
+ENV UV_TOOL_BIN_DIR=usr/local/bin
 
-WORKDIR /home/payd/app
-RUN pip install --no-cache-dir uv==0.8.15
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
 
-COPY --chown=payd:payd pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-cache --compile-bytecode --no-dev && \
-    rm -rf /tmp/uv-cache
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked
 
-
-COPY --chown=payd:payd . .
-
-RUN chown -R payd:payd /home/payd/app
-
-USER payd
-
-
-RUN mkdir -p media staticfiles logs
+    
+ENV PATH="/app/.venv/bin:$PATH"
+    
+RUN mkdir -p media staticfiles && \
+chmod +x entrypoint.sh
 
 EXPOSE 8000
 
-ENTRYPOINT ["/home/payd/app/entrypoint.sh"]
+ENTRYPOINT []
+# RUN apt-get update && \
+#     apt-get install -y --no-install-recommends && \
+#     apt-get clean && \
+#     rm -rf /var/lib/apt/lists/*
+
+# ENV PYTHONDONTWRITEBYTECODE=1 \
+#     PYTHONUNBUFFERED=1 \
+#     PYTHONHASHSEED=random \
+#     PYTHONIOENCODING=utf-8 \
+#     TERM=xterm-256color \
+#     UV_CACHE_DIR=/tmp/uv-cache \
+#     PATH="/home/payd/app/.venv/bin:${PATH}"
+
+# WORKDIR /home/payd/app
+# RUN pip install --no-cache-dir uv==0.8.15
+
+# COPY --chown=payd:payd pyproject.toml uv.lock ./
+# RUN uv sync --frozen --no-cache --compile-bytecode --no-dev && \
+#     rm -rf /tmp/uv-cache
+
+
+# COPY --chown=payd:payd . .
+
+# RUN chown -R payd:payd /home/payd/app
+
+# USER payd
+
+
+# RUN mkdir -p media staticfiles && \
+#     chmod +x entrypoint.sh
+
+# EXPOSE 8000
