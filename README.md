@@ -6,8 +6,11 @@ A lean wallet service built with Django Ninja. Integrates Google OAuth for authe
 
 * **Authentication:** Google OAuth + JWT for users. API keys for services with scoped permissions and expiry.
 * **Wallet:** One wallet per user, real-time balance updates, transaction history, and wallet-to-wallet transfers.
-* **Payments (Paystack):** Deposit initialization, transaction verification, and mandatory webhook handling for crediting.
+* **Payments (Paystack):** Deposit initialization, transaction verification, and webhook handling for crediting.
 * **API Keys:** Create, list, revoke, and roll over keys. Max 5 active keys per user.
+* **Background Tasks (Celery):**
+    * **Paystack Transaction Verification:** Automatically verifies pending Paystack transactions every hour and updates wallet balances accordingly.
+    * **API Key Revocation:** Automatically revokes expired API keys every 45 minutes to enhance security.
 
 ## Core Flows
 
@@ -70,15 +73,27 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 
+# Make sure you have Redis running
+# e.g., docker run -d -p 6379:6379 redis
+
 cp .example.env .env 
+
+# Update .env with your credentials, including:
+# CELERY_BROKER_URL=redis://localhost:6379/0
+# CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
 python manage.py migrate
 
 python manage.py runserver
+
+# In a separate terminal, run the Celery worker and beat
+celery -A payd worker -l info
+celery -A payd beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
 
 Docker:
 
 ```bash
+# This will start the app, database, redis, celery worker and celery beat
 docker compose up --build
 ```
